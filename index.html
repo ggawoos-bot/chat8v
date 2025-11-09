@@ -27,10 +27,38 @@
         
         const cdnNames = ['jsdelivr (legacy)', 'unpkg (legacy)', 'cdnjs'];
         
+        // 로컬 파일 경로 (Legacy 빌드 - UMD 형식)
+        const isDevelopment = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        const localPdfPath = isDevelopment 
+          ? '/assets/pdf.min.js'
+          : './assets/pdf.min.js';
+        const localWorkerPath = isDevelopment
+          ? '/assets/pdf.worker.min.js'
+          : './assets/pdf.worker.min.js';
+        
         function tryLoadPdfJs(index) {
           if (index >= cdnUrls.length) {
-            console.error('❌ 모든 CDN에서 PDF.js 로드 실패');
-            console.error('   PDF.js를 사용할 수 없습니다. 페이지를 새로고침해주세요.');
+            // 모든 CDN 실패 시 로컬 Legacy 빌드 사용 (첫 번째 이미지 해결책 적용)
+            console.warn('⚠️ 모든 CDN에서 PDF.js 로드 실패, 로컬 Legacy 빌드 사용');
+            const localScript = document.createElement('script');
+            localScript.src = localPdfPath;
+            localScript.onload = function() {
+              if (window.pdfjsLib) {
+                // ✅ Worker 경로 명시적 설정 (첫 번째 이미지 해결책: 버전 불일치 방지)
+                window.pdfjsLib.GlobalWorkerOptions.workerSrc = localWorkerPath;
+                console.log('✅ PDF.js loaded from local Legacy build (v' + pdfjsVersion + ')');
+                console.log('   Worker: ' + localWorkerPath);
+              } else {
+                console.error('❌ 로컬 PDF.js 파일에서 pdfjsLib 객체를 찾을 수 없습니다.');
+                console.error('   PDF.js를 사용할 수 없습니다. 페이지를 새로고침해주세요.');
+              }
+            };
+            localScript.onerror = function() {
+              console.error('❌ 로컬 PDF.js 파일 로드 실패: ' + localPdfPath);
+              console.error('   PDF.js를 사용할 수 없습니다. 페이지를 새로고침해주세요.');
+              console.error('   해결책: npm run copy-pdfjs-legacy 실행 후 다시 시도하세요.');
+            };
+            document.head.appendChild(localScript);
             return;
           }
           
@@ -38,6 +66,7 @@
           script.src = cdnUrls[index];
           script.onload = function() {
             if (window.pdfjsLib) {
+              // ✅ Worker 경로 명시적 설정 (첫 번째 이미지 해결책: 버전 불일치 방지)
               window.pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrls[index];
               console.log('✅ PDF.js loaded successfully from CDN (v' + pdfjsVersion + ', ' + cdnNames[index] + ')');
             } else {
