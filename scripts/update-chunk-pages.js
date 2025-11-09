@@ -397,6 +397,90 @@ function getPageInfoForChunkHybrid(chunkStartPos, chunkEndPos, pagesData, chunkC
   };
 }
 
+// ✅ getPageInfoForChunk 함수 (createSentencePageMap에서 사용)
+function getPageInfoForChunk(chunkStartPos, chunkEndPos, pagesData) {
+  return getPageInfoForChunkHybrid(chunkStartPos, chunkEndPos, pagesData);
+}
+
+// ✅ 문장-페이지 매핑 생성 함수 (migrate-to-firestore.js에서 가져옴)
+function createSentencePageMap(chunkContent, chunkStartPos, chunkEndPos, pagesData) {
+  if (!chunkContent || !pagesData || pagesData.length === 0) {
+    return { sentences: [], sentencePageMap: {} };
+  }
+  
+  // 1. 청크를 문장으로 분할
+  const sentences = chunkContent
+    .split(/[.。!！?？\n]/)
+    .map(s => s.trim())
+    .filter(s => s.length >= 10); // 최소 10자 이상 문장만
+  
+  if (sentences.length === 0) {
+    return { sentences: [], sentencePageMap: {} };
+  }
+  
+  // 2. 각 문장의 페이지 정보 매핑
+  const sentencePageMap = {};
+  
+  sentences.forEach((sentence, index) => {
+    // 문장이 청크 내에서의 시작 위치 찾기
+    let sentenceStartInChunk = chunkContent.indexOf(sentence);
+    if (sentenceStartInChunk < 0) {
+      // 정확히 찾지 못한 경우, 부분 매칭 시도
+      const normalizedSentence = normalizeTextForMatching(sentence);
+      for (let i = 0; i < chunkContent.length - normalizedSentence.length; i++) {
+        const chunkPart = normalizeTextForMatching(
+          chunkContent.substring(i, i + Math.min(100, chunkContent.length - i))
+        );
+        if (chunkPart.includes(normalizedSentence.substring(0, Math.min(30, normalizedSentence.length)))) {
+          sentenceStartInChunk = i;
+          break;
+        }
+      }
+    }
+    
+    if (sentenceStartInChunk >= 0) {
+      // 청크 내 상대 위치를 전체 텍스트의 절대 위치로 변환
+      const absolutePosition = chunkStartPos + sentenceStartInChunk;
+      
+      // 해당 위치가 어느 페이지에 속하는지 찾기
+      let foundPage = null;
+      for (const page of pagesData) {
+        if (absolutePosition >= page.startPosition && absolutePosition < page.endPosition) {
+          foundPage = page.pageNumber;
+          break;
+        }
+      }
+      
+      // 위치 기반으로 찾지 못한 경우, 텍스트 매칭으로 폴백
+      if (!foundPage) {
+        const normalizedSentence = normalizeTextForMatching(sentence);
+        for (const page of pagesData) {
+          const normalizedPageText = normalizeTextForMatching(page.text);
+          // 문장의 앞부분(최소 20자)이 페이지에 포함되는지 확인
+          if (normalizedPageText.includes(normalizedSentence.substring(0, Math.min(20, normalizedSentence.length)))) {
+            foundPage = page.pageNumber;
+            break;
+          }
+        }
+      }
+      
+      // 최종 폴백: 청크의 기본 페이지 사용
+      if (!foundPage) {
+        const pageInfo = getPageInfoForChunk(chunkStartPos, chunkEndPos, pagesData);
+        foundPage = pageInfo.pageIndex;
+      }
+      
+      sentencePageMap[index] = foundPage || 1;
+    } else {
+      // 문장을 찾지 못한 경우, 청크의 기본 페이지 사용
+      const pageInfo = getPageInfoForChunk(chunkStartPos, chunkEndPos, pagesData);
+      sentencePageMap[index] = pageInfo.pageIndex;
+    }
+  });
+  
+  return { sentences, sentencePageMap };
+}
+
 // ✅ 문서별로 청크 페이지 정보 업데이트
 async function updateChunkPagesForDocument(documentId, filename, pdfPath) {
   try {
@@ -422,14 +506,15 @@ async function updateChunkPagesForDocument(documentId, filename, pdfPath) {
     
     console.log(`  ✅ ${chunksSnapshot.docs.length}개 청크 발견`);
     
-    // 3. 각 청크의 페이지 정보 재계산 및 업데이트
-    console.log(`  [3/3] 페이지 정보 업데이트 중...`);
+    // 3. 각 청크의 페이지 정보 및 sentences/sentencePageMap 재계산 및 업데이트
+    console.log(`  [3/3] 페이지 정보 및 문장 매핑 업데이트 중...`);
     let batch = writeBatch(db); // ✅ let으로 변경 (재할당 가능)
     const batchSize = 100; // Firestore 배치 제한
     let updateCount = 0;
     let skipCount = 0;
     let errorCount = 0;
     let batchCount = 0;
+    let sentencesAddedCount = 0;
     
     for (const chunkDoc of chunksSnapshot.docs) {
       try {
@@ -446,19 +531,45 @@ async function updateChunkPagesForDocument(documentId, filename, pdfPath) {
           chunkContent
         );
         
+        // ✅ sentences와 sentencePageMap 생성
+        const { sentences, sentencePageMap } = createSentencePageMap(
+          chunkContent,
+          chunkStartPos,
+          chunkEndPos,
+          pdfData.pagesData
+        );
+        
         // 기존 페이지 정보
         const oldPageIndex = chunkData.metadata?.pageIndex || chunkData.metadata?.page;
         const oldLogicalPageNumber = chunkData.metadata?.logicalPageNumber || oldPageIndex;
+        const oldSentences = chunkData.metadata?.sentences || [];
+        const oldSentencePageMap = chunkData.metadata?.sentencePageMap || {};
         
-        // 페이지 정보가 변경된 경우에만 업데이트
-        if (oldPageIndex !== newPageInfo.pageIndex || 
-            oldLogicalPageNumber !== newPageInfo.logicalPageNumber) {
-          batch.update(chunkDoc.ref, {
+        // 업데이트가 필요한지 확인
+        const pageChanged = oldPageIndex !== newPageInfo.pageIndex || 
+                           oldLogicalPageNumber !== newPageInfo.logicalPageNumber;
+        const sentencesChanged = JSON.stringify(oldSentences) !== JSON.stringify(sentences) ||
+                                JSON.stringify(oldSentencePageMap) !== JSON.stringify(sentencePageMap);
+        
+        // 페이지 정보가 변경되었거나 sentences/sentencePageMap이 없는 경우 업데이트
+        if (pageChanged || sentencesChanged || oldSentences.length === 0) {
+          const updateData = {
             'metadata.page': newPageInfo.pageIndex,
             'metadata.pageIndex': newPageInfo.pageIndex,
             'metadata.logicalPageNumber': newPageInfo.logicalPageNumber,
             'updatedAt': Timestamp.now()
-          });
+          };
+          
+          // ✅ sentences와 sentencePageMap 추가
+          if (sentences.length > 0) {
+            updateData['metadata.sentences'] = sentences;
+            updateData['metadata.sentencePageMap'] = sentencePageMap;
+            if (oldSentences.length === 0) {
+              sentencesAddedCount++;
+            }
+          }
+          
+          batch.update(chunkDoc.ref, updateData);
           
           updateCount++;
           batchCount++;
@@ -466,8 +577,9 @@ async function updateChunkPagesForDocument(documentId, filename, pdfPath) {
           // 배치 크기에 도달하면 커밋하고 새 배치 생성
           if (batchCount >= batchSize) {
             await batch.commit();
-            console.log(`    ✓ 배치 커밋: ${updateCount}개 업데이트 (${skipCount}개 건너뜀)`);
+            console.log(`    ✓ 배치 커밋: ${updateCount}개 업데이트 (${skipCount}개 건너뜀, ${sentencesAddedCount}개에 sentences 추가)`);
             batchCount = 0;
+            sentencesAddedCount = 0;
             batch = writeBatch(db); // ✅ 새 배치 생성 (중요!)
           }
         } else {
@@ -482,7 +594,7 @@ async function updateChunkPagesForDocument(documentId, filename, pdfPath) {
     // 남은 배치 커밋
     if (batchCount > 0) {
       await batch.commit();
-      console.log(`    ✓ 최종 배치 커밋: ${batchCount}개 업데이트`);
+      console.log(`    ✓ 최종 배치 커밋: ${batchCount}개 업데이트 (${sentencesAddedCount}개에 sentences 추가)`);
     }
     
     console.log(`  ✅ 문서 처리 완료: ${updateCount}개 업데이트, ${skipCount}개 건너뜀, ${errorCount}개 오류`);

@@ -15,7 +15,9 @@
     "build": "vite build",
     "preview": "vite preview",
     "predeploy": "npm run build",
-    "deploy": "gh-pages -d dist"
+    "deploy": "gh-pages -d dist",
+    "copy-pdfjs-legacy": "node -e \"const fs = require('fs'); const path = require('path'); try { fs.copyFileSync(path.join('node_modules', 'pdfjs-dist', 'legacy', 'build', 'pdf.min.js'), path.join('public', 'assets', 'pdf.min.js')); fs.copyFileSync(path.join('node_modules', 'pdfjs-dist', 'legacy', 'build', 'pdf.worker.min.js'), path.join('public', 'assets', 'pdf.worker.min.js')); console.log('✅ Legacy 빌드 파일 복사 완료'); } catch(e) { console.log('⚠️ Legacy 빌드 파일 복사 실패 (선택사항):', e.message); }\"",
+    "postinstall": "npm run copy-pdfjs-legacy"
   },
   "dependencies": {
     "@google/genai": "^1.16.0",
