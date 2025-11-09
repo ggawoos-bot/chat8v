@@ -25,11 +25,11 @@ dotenv.config();
 
 const firebaseConfig = {
   apiKey: process.env.FIREBASE_API_KEY,
-  authDomain: "chat8-88761.firebaseapp.com",
-  projectId: "chat8-88761",
-  storageBucket: "chat8-88761.firebasestorage.app",
-  messagingSenderId: "1090093126813",
-  appId: "1:1090093126813:web:3f8872dfe3c4f13c92f074"
+  authDomain: "chat-4c3a7.firebaseapp.com",
+  projectId: "chat-4c3a7",
+  storageBucket: "chat-4c3a7.firebasestorage.app",
+  messagingSenderId: "995636644973",
+  appId: "1:995636644973:web:1f133c19af8be180444364"
 };
 
 // 환경변수 검증
