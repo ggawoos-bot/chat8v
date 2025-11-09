@@ -53,6 +53,7 @@ jobs:
     - name: Build application
       run: npm run build
       env:
+        VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
         VITE_GEMINI_API_KEY: ${{ secrets.VITE_GEMINI_API_KEY }}
         VITE_GEMINI_API_KEY_1: ${{ secrets.VITE_GEMINI_API_KEY_1 }}
         VITE_GEMINI_API_KEY_2: ${{ secrets.VITE_GEMINI_API_KEY_2 }}

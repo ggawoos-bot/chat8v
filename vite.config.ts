@@ -58,6 +58,7 @@ export default defineConfig(({ mode }) => {
     
     // 환경변수 디버깅
     console.log('Vite 환경변수 로딩 (VITE_ 접두사):');
+    console.log('- VITE_FIREBASE_API_KEY:', env.VITE_FIREBASE_API_KEY ? '설정됨' : '설정되지 않음');
     console.log('- VITE_GEMINI_API_KEY:', env.VITE_GEMINI_API_KEY ? '설정됨' : '설정되지 않음');
     console.log('- VITE_GEMINI_API_KEY_1:', env.VITE_GEMINI_API_KEY_1 ? '설정됨' : '설정되지 않음');
     console.log('- VITE_GEMINI_API_KEY_2:', env.VITE_GEMINI_API_KEY_2 ? '설정됨' : '설정되지 않음');
@@ -67,6 +68,7 @@ export default defineConfig(({ mode }) => {
     
     // process.env에서도 확인
     console.log('process.env에서 확인:');
+    console.log('- process.env.VITE_FIREBASE_API_KEY:', process.env.VITE_FIREBASE_API_KEY ? '설정됨' : '설정되지 않음');
     console.log('- process.env.VITE_GEMINI_API_KEY:', process.env.VITE_GEMINI_API_KEY ? '설정됨' : '설정되지 않음');
     
     return {
@@ -80,6 +82,8 @@ export default defineConfig(({ mode }) => {
         // 여러 API 키들도 안전하게 주입 (빈 문자열 폴백)
         'process.env.VITE_GEMINI_API_KEY_1': JSON.stringify(env.VITE_GEMINI_API_KEY_1 || ''),
         'process.env.VITE_GEMINI_API_KEY_2': JSON.stringify(env.VITE_GEMINI_API_KEY_2 || ''),
+        // Firebase API 키 주입
+        'import.meta.env.VITE_FIREBASE_API_KEY': JSON.stringify(env.VITE_FIREBASE_API_KEY || ''),
         // import.meta.env도 안전하게 주입
         'import.meta.env.VITE_GEMINI_API_KEY': JSON.stringify(env.VITE_GEMINI_API_KEY || ''),
         'import.meta.env.VITE_GEMINI_API_KEY_1': JSON.stringify(env.VITE_GEMINI_API_KEY_1 || ''),
