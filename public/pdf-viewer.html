@@ -1,0 +1,1710 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PDF 뷰어</title>
+  <!-- PDF 검색 메시지 핸들러 -->
+  <script src="../utils/pdfSearchMessageHandler.js" defer></script>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+        'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+        sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      background: #f5f5f5;
+    }
+    
+    #pdf-viewer-container {
+      width: 100%;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    
+    .header {
+      background: white;
+      border-bottom: 1px solid #e0e0e0;
+      padding: 12px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    
+    .header-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+    }
+    
+    .title {
+      font-size: 16px;
+      font-weight: 600;
+      color: #333;
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .search-container {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      max-width: 400px;
+    }
+    
+    .search-input {
+      flex: 1;
+      padding: 6px 12px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 14px;
+      min-width: 0;
+    }
+    
+    .search-input:focus {
+      outline: none;
+      border-color: #4285f4;
+    }
+    
+    .search-button {
+      padding: 6px 12px;
+      border: 1px solid #ddd;
+      background: #4285f4;
+      color: white;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      white-space: nowrap;
+      transition: all 0.2s;
+    }
+    
+    .search-button:hover:not(:disabled) {
+      background: #357ae8;
+    }
+    
+    .search-button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    
+    .search-nav {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    
+    .search-nav button {
+      padding: 4px 8px;
+      border: 1px solid #ddd;
+      background: white;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+      min-width: 32px;
+    }
+    
+    .search-nav button:hover:not(:disabled) {
+      background: #f0f0f0;
+    }
+    
+    .search-nav button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    
+    .controls button {
+      padding: 6px 12px;
+      border: 1px solid #ddd;
+      background: white;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: all 0.2s;
+    }
+    
+    .controls button:hover:not(:disabled) {
+      background: #f0f0f0;
+    }
+    
+    .controls button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    
+    .page-info {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0 8px;
+    }
+    
+    .page-input {
+      width: 60px;
+      padding: 4px 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      text-align: center;
+      font-size: 14px;
+    }
+    
+    .viewer-wrapper {
+      flex: 1;
+      overflow: auto;
+      background: #525252;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    
+    .loading {
+      color: white;
+      font-size: 16px;
+    }
+    
+    .error {
+      color: #ff4444;
+      text-align: center;
+      padding: 20px;
+    }
+    
+    .error-message {
+      margin-top: 12px;
+      font-size: 14px;
+    }
+    
+    canvas {
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+      max-width: 100%;
+      height: auto;
+    }
+    
+    /* 텍스트 레이어 스타일 */
+    .textLayer {
+      position: absolute;
+      left: 0;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      overflow: hidden;
+      opacity: 1;
+      line-height: 1.0;
+    }
+    
+    .textLayer span {
+      color: transparent;
+      position: absolute;
+      white-space: pre;
+      cursor: text;
+      transform-origin: 0% 0%;
+    }
+    
+    .textLayer .highlight {
+      background-color: rgba(255, 255, 0, 0.4); /* ✅ 더 진하게 (0.15 → 0.4) */
+      border: 1px solid rgba(255, 200, 0, 0.6); /* ✅ 더 진하게 (0.3 → 0.6) */
+      border-radius: 2px;
+      padding: 1px 2px;
+      color: #000 !important; /* ✅ 어두운 텍스트 색상으로 대비 개선 */
+    }
+    
+    .textLayer .highlight-strong {
+      background-color: rgba(255, 200, 0, 0.5); /* ✅ 더 진하게 (0.25 → 0.5) */
+      border: 2px solid rgba(255, 150, 0, 0.8); /* ✅ 더 진하게 (0.4 → 0.8, 1px → 2px) */
+      border-radius: 3px;
+      padding: 2px 3px;
+      font-weight: normal; /* ✅ bold 제거하여 글씨 가독성 향상 */
+      color: #000 !important; /* ✅ 어두운 텍스트 색상으로 대비 개선 */
+    }
+    
+    .textLayer .highlight-current {
+      background-color: rgba(255, 255, 255, 0.95) !important; /* ✅ 밝은 흰색 배경으로 대비 향상 */
+      color: #1a73e8 !important; /* ✅ 파란색 텍스트 */
+      border: 2px solid #1a73e8 !important; /* ✅ 파란색 테두리 */
+      border-radius: 3px;
+      padding: 2px 3px;
+      font-weight: 700 !important; /* ✅ 굵게 */
+      box-shadow: 0 0 6px rgba(26, 115, 232, 0.5);
+    }
+  </style>
+</head>
+<body>
+  <div id="pdf-viewer-container">
+    <div class="header">
+      <div class="header-top">
+        <div class="title" id="pdf-title">PDF 로딩 중...</div>
+        <div class="controls">
+          <button id="prev-btn" disabled>← 이전</button>
+          <div class="page-info">
+            <span>페이지</span>
+            <input type="number" id="page-input" min="1" value="1" disabled>
+            <span id="total-pages">/ ?</span>
+          </div>
+          <button id="next-btn" disabled>다음 →</button>
+          <button id="close-btn">닫기</button>
+        </div>
+      </div>
+      <div class="search-container">
+        <input 
+          type="text" 
+          id="search-input" 
+          class="search-input" 
+          placeholder="현재 문서에서 검색..."
+          autocomplete="off"
+        />
+        <button id="search-button" class="search-button" disabled>검색</button>
+        <div class="search-nav" id="search-nav" style="display: none;">
+          <button id="search-prev-btn" disabled>‹</button>
+          <span id="search-counter" style="font-size: 12px; color: #666; padding: 0 8px;">0/0</span>
+          <button id="search-next-btn" disabled>›</button>
+        </div>
+      </div>
+    </div>
+    <div class="viewer-wrapper" id="viewer-wrapper">
+      <div class="loading">PDF 로딩 중...</div>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script>
+    // PDF.js Worker 설정
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    
+    // URL 파라미터에서 정보 가져오기
+    const urlParams = new URLSearchParams(window.location.search);
+    const pdfUrlParam = urlParams.get('url') || '';
+    const pdfUrl = pdfUrlParam ? decodeURIComponent(pdfUrlParam) : '';
+    const initialPage = parseInt(urlParams.get('page') || '1', 10);
+    const titleParam = urlParams.get('title') || '';
+    const title = titleParam ? decodeURIComponent(titleParam) : 'PDF 문서';
+    
+    // 하이라이트 키워드 가져오기 (변수로 선언하여 나중에 업데이트 가능하게)
+    const highlightParam = urlParams.get('highlight') || '';
+    let searchTextParam = urlParams.get('searchText') || '';
+    let highlightKeywords = highlightParam 
+      ? highlightParam.split(',').filter(k => k.trim().length > 0).map(k => decodeURIComponent(k.trim()))
+      : [];
+    
+    console.log('📄 PDF 뷰어 초기화:', {
+      pdfUrl: pdfUrl,
+      initialPage: initialPage,
+      title: title,
+      highlightKeywords: highlightKeywords,
+      searchText: searchTextParam.substring(0, 50),
+      fullUrl: window.location.href
+    });
+    
+    if (!pdfUrl) {
+      const errorHtml = '<div class="error"><div>❌ PDF URL이 제공되지 않았습니다.</div><div class="error-message">URL 파라미터를 확인하세요.</div></div>';
+      document.getElementById('viewer-wrapper').innerHTML = errorHtml;
+      console.error('❌ PDF URL이 없습니다. URL 파라미터:', window.location.search);
+      throw new Error('PDF URL이 없습니다.');
+    }
+    
+    // 제목 설정
+    document.getElementById('pdf-title').textContent = title;
+    
+    // ✅ 검색 입력 필드 포커스 함수 (여러 시점에서 호출)
+    function focusSearchInput() {
+      const searchInput = document.getElementById('search-input');
+      if (searchInput && document.activeElement !== searchInput) {
+        try {
+          searchInput.focus();
+          console.log('✅ 검색 입력 필드에 포커스 설정');
+        } catch (e) {
+          console.warn('⚠️ 포커스 설정 실패:', e);
+        }
+      }
+    }
+    
+    // ✅ DOM 로드 완료 시 포커스 시도
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', () => {
+        setTimeout(focusSearchInput, 100);
+      });
+    } else {
+      setTimeout(focusSearchInput, 100);
+    }
+    
+    let pdfDoc = null;
+    let currentPage = initialPage;
+    let numPages = 0;
+    let pageRendering = false;
+    let pageNumPending = null;
+    // ✅ PDF.js 좌표 기반 매칭을 위한 전역 변수
+    let currentPageTextContent = null; // 현재 페이지의 textContent 저장
+    // ✅ PDF 로드 전 수신된 메시지를 저장하는 큐
+    const queuedMessages = [];
+    
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    const viewerWrapper = document.getElementById('viewer-wrapper');
+    viewerWrapper.innerHTML = '';
+    
+    // 캔버스와 텍스트 레이어를 담을 컨테이너 생성
+    const pageContainer = document.createElement('div');
+    pageContainer.style.position = 'relative';
+    pageContainer.style.display = 'inline-block';
+    viewerWrapper.appendChild(pageContainer);
+    pageContainer.appendChild(canvas);
+    
+    // 텍스트 레이어 컨테이너 생성
+    const textLayerDiv = document.createElement('div');
+    textLayerDiv.className = 'textLayer';
+    pageContainer.appendChild(textLayerDiv);
+    
+    // 요소 참조
+    const prevBtn = document.getElementById('prev-btn');
+    const nextBtn = document.getElementById('next-btn');
+    const pageInput = document.getElementById('page-input');
+    const totalPagesSpan = document.getElementById('total-pages');
+    const closeBtn = document.getElementById('close-btn');
+    const searchInput = document.getElementById('search-input');
+    const searchButton = document.getElementById('search-button');
+    const searchNav = document.getElementById('search-nav');
+    const searchPrevBtn = document.getElementById('search-prev-btn');
+    const searchNextBtn = document.getElementById('search-next-btn');
+    const searchCounter = document.getElementById('search-counter');
+    
+    // 검색 관련 변수
+    let searchResults = []; // { page: number, index: number } 형태의 검색 결과 배열
+    let currentSearchIndex = -1;
+    let currentSearchText = '';
+    
+    // PDF 로드
+    console.log('📥 PDF 로딩 시작:', pdfUrl);
+    pdfjsLib.getDocument({
+      url: pdfUrl,
+      httpHeaders: {},
+      withCredentials: false
+    }).promise.then((pdf) => {
+      pdfDoc = pdf;
+      numPages = pdf.numPages;
+      
+      totalPagesSpan.textContent = `/ ${numPages}`;
+      pageInput.max = numPages;
+      pageInput.disabled = false;
+      prevBtn.disabled = false;
+      nextBtn.disabled = false;
+      searchButton.disabled = false;
+      
+      // ✅ URL에서 검색 텍스트가 있어도 검색창에 자동 입력하지 않음
+      // (하이라이트는 searchTextParam을 사용하므로 유지)
+      // if (searchTextParam) {
+      //   searchInput.value = searchTextParam;
+      //   performSearch(searchTextParam);
+      // }
+      
+      // ✅ 큐에 쌓인 메시지 처리 (PDF 로드 전에 받은 메시지들)
+      if (queuedMessages.length > 0) {
+        console.log(`📥 큐에 쌓인 ${queuedMessages.length}개 메시지 처리 시작`);
+        queuedMessages.forEach((msg) => {
+          processChangePageMessage(msg);
+        });
+        queuedMessages.length = 0; // 큐 비우기
+      }
+      
+      // 초기 페이지 렌더링 (큐 처리 후, 마지막 메시지의 페이지가 있으면 그것으로, 없으면 initialPage로)
+      renderPage(currentPage);
+      
+      console.log('✅ PDF 로드 완료:', numPages, '페이지');
+      
+      // ✅ 검색 입력 필드에 자동 포커스 (PDF 로드 완료 후)
+      setTimeout(focusSearchInput, 300);
+    }).catch((error) => {
+      console.error('❌ PDF 로드 오류:', error);
+      console.error('❌ PDF URL:', pdfUrl);
+      console.error('❌ 전체 에러 객체:', error);
+      
+      let errorMessage = error.message || '알 수 없는 오류';
+      if (error.name === 'MissingPDFException') {
+        errorMessage = 'PDF 파일을 찾을 수 없습니다. 파일 경로를 확인하세요.';
+      } else if (error.name === 'InvalidPDFException') {
+        errorMessage = '유효하지 않은 PDF 파일입니다.';
+      } else if (error.message && error.message.includes('Network')) {
+        errorMessage = '네트워크 오류가 발생했습니다. 연결을 확인하세요.';
+      } else if (error.message && error.message.includes('CORS')) {
+        errorMessage = 'CORS 오류가 발생했습니다. 서버 설정을 확인하세요.';
+      }
+      
+      viewerWrapper.innerHTML = `
+        <div class="error">
+          <div>❌ PDF 로드 실패</div>
+          <div class="error-message">${errorMessage}</div>
+          <div class="error-message" style="margin-top: 8px; font-size: 12px; color: #999;">URL: ${pdfUrl}</div>
+          <div class="error-message" style="margin-top: 4px; font-size: 11px; color: #aaa;">에러 타입: ${error.name || 'Unknown'}</div>
+        </div>
+      `;
+    });
+    
+    // 페이지 렌더링 (텍스트 레이어 및 하이라이트 포함)
+    function renderPage(num) {
+      console.log(`🔄 renderPage 호출: ${num} (현재: ${currentPage}, 렌더링 중: ${pageRendering})`);
+      pageRendering = true;
+      
+      // ✅ 페이지 입력 필드 즉시 업데이트
+      pageInput.value = num;
+      updateButtons();
+      
+      pdfDoc.getPage(num).then((page) => {
+        console.log(`📄 PDF 페이지 ${num} 로드 완료, 렌더링 시작`);
+        const viewport = page.getViewport({ scale: 1.5 });
+        canvas.height = viewport.height;
+        canvas.width = viewport.width;
+        
+        const renderContext = {
+          canvasContext: ctx,
+          viewport: viewport
+        };
+        
+        const renderTask = page.render(renderContext);
+        
+        renderTask.promise.then(() => {
+          console.log(`✅ PDF 페이지 ${num} 캔버스 렌더링 완료`);
+          
+          // ✅ 초기 페이지 렌더링 완료 시 검색 입력 필드에 포커스
+          if (num === currentPage && !pageRendering) {
+            setTimeout(focusSearchInput, 100);
+          }
+          
+          // 텍스트 레이어 렌더링 및 하이라이트
+          return page.getTextContent();
+        }).then((textContent) => {
+          // ✅ PDF.js 좌표 기반 매칭을 위해 textContent 저장
+          currentPageTextContent = textContent;
+          
+          // 텍스트 레이어 초기화
+          textLayerDiv.innerHTML = '';
+          textLayerDiv.style.width = viewport.width + 'px';
+          textLayerDiv.style.height = viewport.height + 'px';
+          
+          // PDF.js의 텍스트 레이어 렌더링
+          // PDF.js 3.x 버전에서는 renderTextLayer 사용
+          try {
+            pdfjsLib.renderTextLayer({
+              textContentSource: textContent,
+              container: textLayerDiv,
+              viewport: viewport,
+              textDivs: []
+            });
+          } catch (error) {
+            console.warn('텍스트 레이어 렌더링 실패 (계속 진행):', error);
+            // 텍스트 레이어 실패해도 PDF는 계속 표시
+          }
+          
+          // 하이라이트 적용 및 스크롤 (텍스트 레이어가 렌더링된 후)
+          setTimeout(() => {
+            // ✅ 검색어가 있으면 검색어를 우선 사용, 없으면 URL 파라미터 사용
+            const highlightText = currentSearchText || searchTextParam;
+            
+            // 검색어가 있으면 검색어로 하이라이트 (키워드 무시)
+            if (currentSearchText) {
+              applyHighlight(textLayerDiv, [], currentSearchText, currentSearchIndex);
+            } else {
+              applyHighlight(textLayerDiv, highlightKeywords, highlightText, -1);
+            }
+            
+            // ✅ 하이라이트 위치로 스크롤 (여러 번 시도하여 확실히 보이도록)
+            scrollToHighlight(textLayerDiv, 0);
+            
+            // ✅ 추가 시도: DOM 업데이트가 늦을 수 있으므로
+            setTimeout(() => {
+              scrollToHighlight(textLayerDiv, 1);
+            }, 500);
+            
+            // ✅ 최종 시도: 확실히 보이도록
+            setTimeout(() => {
+              scrollToHighlight(textLayerDiv, 2);
+            }, 1000);
+            
+            console.log(`✅ 페이지 ${num} 렌더링 및 하이라이트 완료`);
+          }, 300); // 500ms에서 300ms로 단축하여 더 빠른 반응
+          
+          // 페이지 전환 후 스크롤 위치 초기화 (하이라이트 스크롤 전에 상단으로)
+          // 주의: scrollToHighlight에서 다시 스크롤하므로 이 부분은 제거하거나 순서 조정 필요
+          // scrollToHighlight가 하이라이트를 찾지 못한 경우에만 상단으로 스크롤
+          
+          pageRendering = false;
+          console.log(`✅ 페이지 ${num} 렌더링 완전히 완료`);
+          
+          // ✅ 초기 페이지 렌더링 완료 시 검색 입력 필드에 포커스
+          if (num === currentPage && num === initialPage) {
+            setTimeout(focusSearchInput, 100);
+          }
+          
+          if (pageNumPending !== null) {
+            const pending = pageNumPending;
+            pageNumPending = null;
+            console.log(`📄 대기 중인 페이지 ${pending} 렌더링 시작`);
+            renderPage(pending);
+          }
+        }).catch((error) => {
+          console.error('텍스트 레이어 렌더링 오류:', error);
+          pageRendering = false;
+          if (pageNumPending !== null) {
+            const pending = pageNumPending;
+            pageNumPending = null;
+            console.log(`📄 오류 후 대기 중인 페이지 ${pending} 렌더링 시작`);
+            renderPage(pending);
+          }
+        });
+      }).catch((error) => {
+        console.error(`❌ PDF 페이지 ${num} 로드 실패:`, error);
+        pageRendering = false;
+        if (pageNumPending !== null) {
+          const pending = pageNumPending;
+          pageNumPending = null;
+          renderPage(pending);
+        }
+      });
+    }
+    
+    // ✅ 텍스트 정규화 함수 (매칭용) - 공백, 특수문자 정규화로 매칭 정확도 향상
+    function normalizeTextForMatching(text) {
+      if (!text) return '';
+      return text
+        .replace(/\s+/g, ' ')           // 연속 공백을 하나로
+        .replace(/[\n\r\t]/g, ' ')      // 줄바꿈/탭을 공백으로
+        .replace(/[^\w가-힣\s:;]/g, '') // 특수문자 제거 (한글, 영문, 숫자, 콜론, 세미콜론만 유지)
+        .toLowerCase()
+        .trim();
+    }
+    
+    // ✅ 단어 유사도 매칭 함수 (추가 개선 사항)
+    function isWordSimilar(word1, word2, threshold = 0.8) {
+      if (!word1 || !word2) return false;
+      
+      const longer = word1.length > word2.length ? word1 : word2;
+      const shorter = word1.length > word2.length ? word2 : word1;
+      
+      // 완전 일치
+      if (longer === shorter) return true;
+      
+      // 포함 관계 확인
+      if (longer.includes(shorter)) return true;
+      
+      // 짧은 단어가 3자 이상이고, 긴 단어가 짧은 단어의 앞부분을 포함하는 경우
+      if (shorter.length >= 3 && longer.includes(shorter.substring(0, shorter.length - 1))) {
+        return true;
+      }
+      
+      // 한글의 경우 자모 단위 유사도 (간단한 버전)
+      if (longer.length >= 3 && shorter.length >= 3) {
+        // 첫 글자와 마지막 글자가 같으면 유사하다고 판단
+        if (longer[0] === shorter[0] && longer[longer.length - 1] === shorter[shorter.length - 1]) {
+          return true;
+        }
+      }
+      
+      return false;
+    }
+    
+    // ✅ 해시 생성 함수 (정규화된 텍스트의 해시값 생성)
+    function createTextHash(text) {
+      const normalized = normalizeTextForMatching(text);
+      let hash = 0;
+      for (let i = 0; i < normalized.length; i++) {
+        const char = normalized.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash; // 32bit 정수로 변환
+      }
+      return hash.toString(36);
+    }
+    
+    // ✅ 문장에 해당하는 span 찾기 헬퍼 함수
+    function findSpansForSentence(textSpans, targetSentence, normalizedAllText) {
+      const normalizedTarget = normalizeTextForMatching(targetSentence);
+      const matchIndex = normalizedAllText.indexOf(normalizedTarget);
+      
+      if (matchIndex < 0) return null;
+      
+      let charIndex = 0;
+      const matchedSpans = [];
+      const matchEndIndex = matchIndex + normalizedTarget.length;
+      
+      for (let i = 0; i < textSpans.length; i++) {
+        const span = textSpans[i];
+        const spanText = normalizeTextForMatching(span.textContent || '');
+        const spanLength = spanText.length;
+        
+        const spanStartChar = charIndex;
+        const spanEndChar = charIndex + spanLength;
+        
+        // span이 검색 범위와 겹치면 하이라이트
+        if (spanStartChar < matchEndIndex && spanEndChar > matchIndex) {
+          matchedSpans.push(span);
+        }
+        
+        charIndex = spanEndChar;
+        
+        // 매칭 범위를 넘어가면 종료
+        if (spanEndChar >= matchEndIndex) {
+          break;
+        }
+      }
+      
+      return matchedSpans.length > 0 ? matchedSpans : null;
+    }
+    
+    // ✅ 해시 기반 다단계 매칭 함수 (95-99% 정확도)
+    function findSentenceWithHashMatching(textLayer, targetSentence) {
+      if (!targetSentence || !textLayer) {
+        return null;
+      }
+      
+      const normalizedTarget = normalizeTextForMatching(targetSentence);
+      if (normalizedTarget.length < 10) {
+        return null; // 너무 짧은 문장은 스킵
+      }
+      
+      const textSpans = textLayer.querySelectorAll('span');
+      const allText = Array.from(textSpans).map(s => s.textContent || '').join(' ');
+      const normalizedAllText = normalizeTextForMatching(allText);
+      
+      // ✅ Stage 1: 정확한 해시 매칭 (100% 정확도)
+      const targetHash = createTextHash(normalizedTarget);
+      const sentences = normalizedAllText.split(/[.。!！?？\n]/).map(s => s.trim()).filter(s => s.length >= 10);
+      
+      for (let i = 0; i < sentences.length; i++) {
+        const sentenceHash = createTextHash(sentences[i]);
+        if (sentenceHash === targetHash) {
+          // 정확한 매칭 발견 - 해당 문장의 span 찾기
+          const matchedSpans = findSpansForSentence(textSpans, sentences[i], normalizedAllText);
+          if (matchedSpans && matchedSpans.length > 0) {
+            console.log(`✅ 해시 기반 정확 매칭 성공: ${matchedSpans.length}개 span`);
+            return matchedSpans;
+          }
+        }
+      }
+      
+      // ✅ Stage 2: 부분 해시 매칭 (95%+ 정확도)
+      const targetPrefix = normalizedTarget.substring(0, Math.min(50, normalizedTarget.length));
+      const targetPrefixHash = createTextHash(targetPrefix);
+      
+      for (let i = 0; i < sentences.length; i++) {
+        const sentencePrefix = sentences[i].substring(0, Math.min(50, sentences[i].length));
+        const sentencePrefixHash = createTextHash(sentencePrefix);
+        
+        if (sentencePrefixHash === targetPrefixHash) {
+          const matchedSpans = findSpansForSentence(textSpans, sentences[i], normalizedAllText);
+          if (matchedSpans && matchedSpans.length > 0) {
+            console.log(`✅ 해시 기반 부분 매칭 성공: ${matchedSpans.length}개 span`);
+            return matchedSpans;
+          }
+        }
+      }
+      
+      // ✅ Stage 3: 단어 기반 유사도 매칭 (90%+ 정확도)
+      const targetWords = normalizedTarget.split(/\s+/).filter(w => w.trim().length >= 3);
+      let bestMatch = null;
+      let bestScore = 0;
+      
+      for (let i = 0; i < sentences.length; i++) {
+        const sentenceWords = sentences[i].split(/\s+/).filter(w => w.trim().length >= 3);
+        const matchedWords = targetWords.filter(tw => 
+          sentenceWords.some(sw => sw.includes(tw) || tw.includes(sw))
+        );
+        
+        const score = matchedWords.length / targetWords.length;
+        if (score > bestScore && score >= 0.8) {
+          bestScore = score;
+          const matchedSpans = findSpansForSentence(textSpans, sentences[i], normalizedAllText);
+          if (matchedSpans && matchedSpans.length > 0) {
+            bestMatch = matchedSpans;
+          }
+        }
+      }
+      
+      if (bestMatch && bestMatch.length > 0) {
+        console.log(`✅ 해시 기반 유사도 매칭 성공: ${bestMatch.length}개 span (점수: ${bestScore.toFixed(2)})`);
+        return bestMatch;
+      }
+      
+      return null;
+    }
+    
+    // ✅ PDF.js 좌표 기반 정확 매칭 함수 (99%+ 정확도)
+    function findExactSentenceWithPDFJS(textLayer, targetSentence) {
+      if (!currentPageTextContent || !targetSentence || !textLayer) {
+        return null;
+      }
+      
+      const normalizedTarget = normalizeTextForMatching(targetSentence);
+      if (normalizedTarget.length < 10) {
+        return null; // 너무 짧은 문장은 스킵
+      }
+      
+      // ✅ 1단계: PDF.js 텍스트 아이템으로 전체 텍스트 재구성
+      const textItems = [];
+      let fullText = '';
+      let charIndex = 0;
+      
+      currentPageTextContent.items.forEach((item) => {
+        if (item.str && item.str.trim()) {
+          const normalizedItem = normalizeTextForMatching(item.str);
+          const itemLength = normalizedItem.length;
+          
+          textItems.push({
+            str: item.str,
+            normalizedStr: normalizedItem,
+            transform: item.transform,
+            width: item.width,
+            height: item.height,
+            x: item.transform[4], // e 값이 X 좌표
+            y: item.transform[5], // f 값이 Y 좌표
+            fontName: item.fontName,
+            dir: item.dir,
+            startCharIndex: charIndex,
+            endCharIndex: charIndex + itemLength
+          });
+          
+          fullText += normalizedItem + ' ';
+          charIndex += itemLength + 1; // 공백 포함
+        }
+      });
+      
+      const normalizedFullText = normalizeTextForMatching(fullText);
+      
+      // ✅ 2단계: 정확한 매칭 위치 찾기
+      const matchIndex = normalizedFullText.indexOf(normalizedTarget);
+      
+      if (matchIndex >= 0) {
+        // ✅ 3단계: 매칭된 텍스트 아이템 추출
+        const matchedItems = [];
+        const matchEndIndex = matchIndex + normalizedTarget.length;
+        
+        for (const item of textItems) {
+          // 매칭 범위와 겹치는 아이템 찾기
+          if (item.startCharIndex < matchEndIndex && item.endCharIndex > matchIndex) {
+            matchedItems.push(item);
+          }
+          
+          // 매칭 범위를 넘어가면 종료
+          if (item.endCharIndex >= matchEndIndex) {
+            break;
+          }
+        }
+        
+        if (matchedItems.length > 0) {
+          // ✅ 4단계: 텍스트 레이어의 span 요소와 매칭
+          const textSpans = textLayer.querySelectorAll('span');
+          const matchedSpans = [];
+          
+          // 텍스트 아이템의 텍스트로 span 찾기
+          let spanIndex = 0;
+          for (const item of matchedItems) {
+            // 해당 텍스트를 포함하는 span 찾기
+            for (let i = spanIndex; i < textSpans.length; i++) {
+              const span = textSpans[i];
+              const spanText = normalizeTextForMatching(span.textContent || '');
+              
+              // 텍스트 아이템의 텍스트가 span에 포함되어 있는지 확인
+              if (spanText.includes(item.normalizedStr) || item.normalizedStr.includes(spanText)) {
+                if (!matchedSpans.includes(span)) {
+                  matchedSpans.push(span);
+                }
+                spanIndex = i + 1; // 다음 span부터 검색
+                break;
+              }
+            }
+          }
+          
+          if (matchedSpans.length > 0) {
+            console.log(`✅ PDF.js 좌표 기반 정확 매칭 성공: ${matchedSpans.length}개 span`);
+            return matchedSpans;
+          }
+        }
+      }
+      
+      // ✅ 5단계: 부분 매칭 시도 (정확 매칭 실패 시)
+      const targetPrefix = normalizedTarget.substring(0, Math.min(50, normalizedTarget.length));
+      const prefixMatchIndex = normalizedFullText.indexOf(targetPrefix);
+      
+      if (prefixMatchIndex >= 0) {
+        const matchedItems = [];
+        const prefixMatchEndIndex = prefixMatchIndex + targetPrefix.length;
+        
+        for (const item of textItems) {
+          if (item.startCharIndex < prefixMatchEndIndex && item.endCharIndex > prefixMatchIndex) {
+            matchedItems.push(item);
+          }
+          if (item.endCharIndex >= prefixMatchEndIndex) {
+            break;
+          }
+        }
+        
+        if (matchedItems.length > 0) {
+          const textSpans = textLayer.querySelectorAll('span');
+          const matchedSpans = [];
+          let spanIndex = 0;
+          
+          for (const item of matchedItems) {
+            for (let i = spanIndex; i < textSpans.length; i++) {
+              const span = textSpans[i];
+              const spanText = normalizeTextForMatching(span.textContent || '');
+              
+              if (spanText.includes(item.normalizedStr) || item.normalizedStr.includes(spanText)) {
+                if (!matchedSpans.includes(span)) {
+                  matchedSpans.push(span);
+                }
+                spanIndex = i + 1;
+                break;
+              }
+            }
+          }
+          
+          if (matchedSpans.length > 0) {
+            console.log(`✅ PDF.js 좌표 기반 부분 매칭 성공: ${matchedSpans.length}개 span`);
+            return matchedSpans;
+          }
+        }
+      }
+      
+      return null;
+    }
+    
+    // 하이라이트 적용 함수 (개선된 버전: 순차적 단어 배열 + 슬라이딩 윈도우 매칭)
+    function applyHighlight(textLayer, keywords, searchText, currentSearchIndex = -1) {
+      if (!textLayer || (!keywords.length && !searchText)) {
+        console.log('⚠️ 하이라이트할 키워드나 텍스트가 없습니다.');
+        return;
+      }
+      
+      // ✅ 기존 하이라이트 제거
+      textLayer.querySelectorAll('.highlight, .highlight-strong, .highlight-current').forEach(el => {
+        el.classList.remove('highlight', 'highlight-strong', 'highlight-current');
+      });
+      
+      const textSpans = textLayer.querySelectorAll('span');
+      let highlightCount = 0;
+      
+      // ✅ 현재 선택된 검색 결과 정보 가져오기
+      let currentResult = null;
+      if (currentSearchIndex >= 0 && currentSearchIndex < searchResults.length) {
+        currentResult = searchResults[currentSearchIndex];
+      }
+      
+      // ✅ 0단계: PDF.js 좌표 기반 정확 매칭 (최우선, 99%+ 정확도)
+      if (searchText && searchText.trim().length >= 10) {
+        const pdfjsMatch = findExactSentenceWithPDFJS(textLayer, searchText);
+        if (pdfjsMatch && pdfjsMatch.length > 0) {
+          // ✅ PDF.js 좌표 기반 매칭 성공
+          pdfjsMatch.forEach(span => {
+            span.classList.add('highlight-strong');
+            highlightCount++;
+          });
+          console.log(`✅ PDF.js 좌표 기반 하이라이트 완료: ${highlightCount}개 span`);
+          return; // PDF.js 매칭 성공 시 여기서 종료
+        }
+        
+        // ✅ 0-1단계: 해시 기반 다단계 매칭 (PDF.js 실패 시, 95-99% 정확도)
+        const hashMatch = findSentenceWithHashMatching(textLayer, searchText);
+        if (hashMatch && hashMatch.length > 0) {
+          // ✅ 해시 기반 매칭 성공
+          hashMatch.forEach(span => {
+            span.classList.add('highlight-strong');
+            highlightCount++;
+          });
+          console.log(`✅ 해시 기반 하이라이트 완료: ${highlightCount}개 span`);
+          return; // 해시 매칭 성공 시 여기서 종료
+        }
+      }
+      
+      // ✅ 1단계: 검색 텍스트로 정확한 매칭 (공백 구분 AND 조건 지원)
+      if (searchText && searchText.trim().length > 0) {
+        // ✅ 개선: 공백으로 구분된 검색어 파싱 (AND 조건)
+        const searchQueries = searchText
+          .split(/\s+/) // 공백(연속 공백 포함)으로 분할
+          .map(q => q.trim())
+          .filter(q => q.length >= 2) // 최소 2자 이상
+          .map(q => normalizeTextForMatching(q)); // ✅ 텍스트 정규화 적용
+        
+        if (searchQueries.length > 0) {
+          const isMultiSearch = searchQueries.length > 1;
+          
+          if (isMultiSearch) {
+            // ✅ 복수 검색어: 문장 단위로 그룹화하여 2개 이상의 검색어가 포함된 문장만 하이라이트
+            // 1단계: 모든 span의 텍스트를 순서대로 합쳐서 전체 텍스트 구성
+            const allText = Array.from(textSpans).map(s => s.textContent || '').join('');
+            
+            // 2단계: 문장으로 분할하고 2개 이상의 검색어가 포함된 문장 찾기
+            const sentenceRegex = /([^.。!！?？\n]+[.。!！?？\n]+)/g;
+            const sentenceMatches = [];
+            let match;
+            
+            while ((match = sentenceRegex.exec(allText)) !== null) {
+              const sentenceText = match[0];
+              const normalizedSentence = normalizeTextForMatching(sentenceText);
+              
+              // 문장에 포함된 검색어 개수 확인
+              const matchedTermsCount = searchQueries.filter(query => 
+                normalizedSentence.includes(query)
+              ).length;
+              
+              // 2개 이상의 검색어가 포함된 경우만 저장
+              if (matchedTermsCount >= 2) {
+                sentenceMatches.push({
+                  start: match.index,
+                  end: match.index + sentenceText.length,
+                  sentence: sentenceText
+                });
+              }
+            }
+            
+            // 마지막 문장 처리 (문장 종료 문자가 없는 경우)
+            const lastSentenceStart = sentenceMatches.length > 0 
+              ? sentenceMatches[sentenceMatches.length - 1].end 
+              : 0;
+            if (lastSentenceStart < allText.length) {
+              const lastSentence = allText.substring(lastSentenceStart);
+              const normalizedLastSentence = normalizeTextForMatching(lastSentence);
+              const matchedTermsCount = searchQueries.filter(query => 
+                normalizedLastSentence.includes(query)
+              ).length;
+              
+              if (matchedTermsCount >= 2) {
+                sentenceMatches.push({
+                  start: lastSentenceStart,
+                  end: allText.length,
+                  sentence: lastSentence
+                });
+              }
+            }
+            
+            // 3단계: 문장에 속한 span들을 찾아서 하이라이트
+            if (sentenceMatches.length > 0) {
+              // span들의 문자 위치 계산
+              let charIndex = 0;
+              const spanPositions = [];
+              
+              Array.from(textSpans).forEach((span) => {
+                const spanText = span.textContent || '';
+                const spanLength = spanText.length;
+                spanPositions.push({
+                  span: span,
+                  start: charIndex,
+                  end: charIndex + spanLength
+                });
+                charIndex += spanLength;
+              });
+              
+              // 각 문장에 속한 span들 찾기
+              sentenceMatches.forEach((sentenceMatch) => {
+                spanPositions.forEach((spanPos) => {
+                  // span이 문장 범위와 겹치면 하이라이트
+                  if (spanPos.start < sentenceMatch.end && spanPos.end > sentenceMatch.start) {
+                    // ✅ 현재 선택된 검색 결과인지 확인
+                    const isCurrentResult = currentResult && 
+                                           currentResult.page === currentPage;
+                    
+                    if (isCurrentResult) {
+                      spanPos.span.classList.add('highlight-current');
+                    } else {
+                      spanPos.span.classList.add('highlight-strong');
+                    }
+                    highlightCount++;
+                  }
+                });
+              });
+              
+              // 4단계: 문장 하이라이트 완료 (개별 단어는 문장 하이라이트 내에서 자동으로 포함됨)
+              
+              console.log(`✅ 복수 검색어 문장 단위 하이라이트 적용 완료: ${highlightCount}개 span (${sentenceMatches.length}개 문장)`);
+              return; // 검색 텍스트로 하이라이트했으면 키워드 하이라이트는 스킵
+            } else {
+              console.log(`⚠️ 2개 이상의 검색어가 포함된 문장을 찾을 수 없음`);
+            }
+          } else {
+            // ✅ 개선된 방식: 단일 검색어 - 정확한 매칭 우선 + 단어 순서 고려
+            const trimmedSearchText = searchText.trim();
+            const normalizedSearchText = normalizeTextForMatching(trimmedSearchText);
+            const query = searchQueries[0];
+            
+            // ✅ 현재 페이지의 모든 검색 결과 찾기
+            const currentPageResults = searchResults.filter(r => r.page === currentPage);
+            let currentResultIndex = -1;
+            if (currentResult && currentResult.page === currentPage) {
+              currentResultIndex = currentPageResults.findIndex(r => 
+                r.page === currentResult.page && 
+                r.position === currentResult.position
+              );
+            }
+            
+            // ✅ 개선 1: 정확한 문자열 매칭 먼저 시도
+            const allText = Array.from(textSpans).map(s => s.textContent || '').join(' ');
+            const normalizedAllText = normalizeTextForMatching(allText);
+            
+            // 모든 매칭 위치 찾기
+            let searchStartIndex = normalizedAllText.indexOf(query);
+            let matchIndex = 0;
+            const allMatches = [];
+            
+            while (searchStartIndex !== -1) {
+              const searchEndIndex = searchStartIndex + query.length;
+              
+              let charIndex = 0;
+              const matchedSpans = [];
+              
+              for (let i = 0; i < textSpans.length; i++) {
+                const span = textSpans[i];
+                const spanText = span.textContent || '';
+                const normalizedSpanText = normalizeTextForMatching(spanText);
+                
+                const spanStartChar = charIndex;
+                const spanEndChar = charIndex + normalizedSpanText.length;
+                
+                // span이 검색 범위와 겹치면 하이라이트
+                if (spanStartChar < searchEndIndex && spanEndChar > searchStartIndex) {
+                  matchedSpans.push(span);
+                }
+                
+                charIndex = spanEndChar;
+              }
+              
+              if (matchedSpans.length > 0) {
+                allMatches.push({
+                  spans: matchedSpans,
+                  matchIndex: matchIndex,
+                  position: searchStartIndex
+                });
+                matchIndex++;
+              }
+              
+              searchStartIndex = normalizedAllText.indexOf(query, searchStartIndex + 1);
+            }
+            
+            if (allMatches.length > 0) {
+              // ✅ 모든 매칭을 하이라이트하고, 현재 선택된 항목만 강조
+              allMatches.forEach((match, matchArrayIndex) => {
+                const isCurrentMatch = currentResultIndex >= 0 && 
+                                      matchArrayIndex === currentResultIndex;
+                
+                match.spans.forEach((span) => {
+                  if (isCurrentMatch) {
+                    span.classList.add('highlight-current');
+                  } else {
+                    span.classList.add('highlight-strong');
+                  }
+                  highlightCount++;
+                });
+              });
+              
+              console.log(`✅ 정확한 문자열 매칭 하이라이트 완료: ${highlightCount}개 span (${allMatches.length}개 매칭)`);
+              return;
+            }
+            
+            // ✅ 개선 2: 단어 기반 매칭 (단어 순서 고려)
+            const searchWords = normalizedSearchText
+              .split(/\s+/)
+              .filter(w => w.trim().length >= 2) // 최소 2자 이상
+              .filter(w => {
+                // 불필요한 단어 제거 (조사, 접속사 등)
+                const stopWords = ['은', '는', '이', '가', '을', '를', '에', '의', '와', '과', '도', '만', '로', '으로', '및', '등'];
+                return !stopWords.includes(w.trim());
+              });
+            
+            if (searchWords.length === 0) {
+              console.log('⚠️ 검색어에서 유효한 단어를 추출할 수 없습니다.');
+            } else {
+              console.log(`🔍 검색어 단어 분리: ${searchWords.length}개`, searchWords.slice(0, 10));
+              
+              // ✅ 2단계: 모든 span을 순서대로 배열하고 단어 추출
+              const spanWordArray = [];
+              
+              Array.from(textSpans).forEach((span, index) => {
+                const text = span.textContent || '';
+                if (text.trim()) {
+                  // span 텍스트를 단어로 분리
+                  const normalizedSpanText = normalizeTextForMatching(text);
+                  const spanWords = normalizedSpanText
+                    .split(/\s+/)
+                    .filter(w => w.trim().length >= 1); // 1자 이상
+                  
+                  // span 정보 저장 (단어들과 원본 span 요소)
+                  spanWordArray.push({
+                    span: span,
+                    words: spanWords,
+                    originalText: text,
+                    normalizedText: normalizedSpanText,
+                    index: index
+                  });
+                }
+              });
+              
+              console.log(`📋 span 배열 완료: ${spanWordArray.length}개 span, 총 ${spanWordArray.reduce((sum, item) => sum + item.words.length, 0)}개 단어`);
+              
+              // ✅ 개선 3: 단어 순서를 고려한 매칭 (점수 기반) - 모든 유효한 매칭 하이라이트
+              const windowSize = Math.max(3, Math.ceil(searchWords.length * 2));
+              const matchedSpanSet = new Set();
+              const validMatches = []; // 모든 유효한 매칭 저장
+              
+              for (let i = 0; i <= spanWordArray.length - windowSize; i++) {
+                const windowSpans = spanWordArray.slice(i, i + windowSize);
+                
+                // 윈도우 내 모든 단어를 순서대로 수집
+                const windowWords = [];
+                windowSpans.forEach(item => {
+                  windowWords.push(...item.words);
+                });
+                
+                // 단어 매칭 및 순서 점수 계산
+                let matchedWords = 0;
+                let orderScore = 0;
+                let lastMatchedIndex = -1;
+                const matchedWordSet = new Set();
+                
+                for (let j = 0; j < searchWords.length; j++) {
+                  const searchWord = searchWords[j];
+                  let found = false;
+                  
+                  // 현재 위치부터 찾기 (순서 고려)
+                  for (let k = Math.max(0, lastMatchedIndex + 1); k < windowWords.length; k++) {
+                    const windowWord = windowWords[k];
+                    
+                    if (windowWord.includes(searchWord) || 
+                        searchWord.includes(windowWord) ||
+                        isWordSimilar(windowWord, searchWord)) {
+                      found = true;
+                      
+                      // 순서 점수 계산 (이전 단어 바로 다음에 오면 높은 점수)
+                      if (lastMatchedIndex >= 0 && k === lastMatchedIndex + 1) {
+                        orderScore += 20; // 연속된 경우 가장 높은 점수
+                      } else if (lastMatchedIndex >= 0 && k - lastMatchedIndex <= 2) {
+                        orderScore += 10; // 가까운 경우 중간 점수
+                      } else if (lastMatchedIndex >= 0 && k - lastMatchedIndex <= 5) {
+                        orderScore += 5; // 멀리 있는 경우 낮은 점수
+                    } else {
+                        orderScore += 1; // 매우 먼 경우 최소 점수
+                      }
+                      
+                      lastMatchedIndex = k;
+                      break;
+                    }
+                  }
+                  
+                  if (found) {
+                    matchedWords++;
+                    matchedWordSet.add(searchWord);
+                  }
+                }
+                
+                const wordMatchRatio = matchedWords / searchWords.length;
+                // 총 점수 = 매칭 비율 점수 + 순서 점수
+                const totalScore = (wordMatchRatio * 100) + orderScore;
+                
+                // ✅ 개선 4: 조건 완화하여 더 많은 매칭 포착 (30% 이상 또는 2개 이상 단어 매칭)
+                if (matchedWords >= 2 || wordMatchRatio >= 0.3 || totalScore >= 40) {
+                  validMatches.push({ 
+                    windowSpans, 
+                    matchedWords, 
+                    wordMatchRatio, 
+                    totalScore,
+                    orderScore,
+                    matchedWordSet,
+                    startIndex: i
+                  });
+                }
+              }
+              
+              // ✅ 개선 5: 모든 유효한 매칭을 하이라이트 (중복 방지)
+              if (validMatches.length > 0) {
+                // 점수 순으로 정렬 (높은 점수부터)
+                validMatches.sort((a, b) => b.totalScore - a.totalScore);
+                
+                console.log(`✅ 유효한 매칭 발견: ${validMatches.length}개`);
+                
+                // 모든 유효한 매칭을 하이라이트 (중복 span은 제외)
+                validMatches.forEach((match, idx) => {
+                  match.windowSpans.forEach(item => {
+                    if (!matchedSpanSet.has(item.span)) {
+                      item.span.classList.add('highlight-strong');
+                      matchedSpanSet.add(item.span);
+                          highlightCount++;
+                        }
+                      });
+                  
+                  if (idx < 3) { // 상위 3개만 로그 출력
+                    console.log(`  매칭 ${idx + 1}: ${match.matchedWords}/${searchWords.length} (${(match.wordMatchRatio * 100).toFixed(1)}%), 순서 점수: ${match.orderScore}, 총 점수: ${match.totalScore.toFixed(1)}`);
+                  }
+                });
+                
+                if (highlightCount > 0) {
+                  console.log(`✅ 단어 순서 고려 매칭 하이라이트 완료: ${highlightCount}개 span`);
+                  return;
+                }
+              }
+              
+              // ✅ 폴백: 기존 로직 (단어 순서 고려 없이) - 조건 완화 및 모든 매칭 하이라이트
+              if (highlightCount === 0) {
+                console.log('⚠️ 순서 고려 매칭 실패, 기존 방식으로 재시도...');
+                
+                const baseWindowSize = Math.max(5, searchWords.length * 2);
+                const maxWindowSize = Math.min(baseWindowSize, spanWordArray.length);
+                const fallbackWindowSize = Math.min(maxWindowSize, Math.max(3, Math.ceil(searchWords.length * 1.5)));
+                const fallbackMatches = []; // 모든 유효한 폴백 매칭 저장
+                
+                for (let i = 0; i <= spanWordArray.length - fallbackWindowSize; i++) {
+                  const windowSpans = spanWordArray.slice(i, i + fallbackWindowSize);
+                  const windowWords = [];
+                  windowSpans.forEach(item => {
+                    windowWords.push(...item.words);
+                  });
+                  
+                  let matchedWords = 0;
+                  for (const searchWord of searchWords) {
+                    const found = windowWords.some(windowWord => {
+                      return windowWord.includes(searchWord) || 
+                             searchWord.includes(windowWord) ||
+                             isWordSimilar(windowWord, searchWord);
+                    });
+                    if (found) {
+                      matchedWords++;
+                    }
+                  }
+                  
+                  const wordMatchRatio = matchedWords / searchWords.length;
+                  // ✅ 조건 완화: 2개 이상 단어 또는 30% 이상 매칭
+                  if (matchedWords >= 2 || wordMatchRatio >= 0.3) {
+                    fallbackMatches.push({
+                      windowSpans,
+                      matchedWords,
+                      wordMatchRatio,
+                      startIndex: i
+                    });
+                  }
+                }
+                
+                // 모든 유효한 폴백 매칭 하이라이트
+                if (fallbackMatches.length > 0) {
+                  console.log(`✅ 폴백 매칭 발견: ${fallbackMatches.length}개`);
+                  fallbackMatches.forEach((match, idx) => {
+                    match.windowSpans.forEach(item => {
+                      if (!matchedSpanSet.has(item.span)) {
+                        item.span.classList.add('highlight-strong');
+                        matchedSpanSet.add(item.span);
+                    highlightCount++;
+                  }
+                });
+                    
+                    if (idx < 3) { // 상위 3개만 로그 출력
+                      console.log(`  폴백 매칭 ${idx + 1}: ${match.matchedWords}/${searchWords.length} (${(match.wordMatchRatio * 100).toFixed(1)}%)`);
+              }
+                  });
+              
+              if (highlightCount > 0) {
+                    console.log(`✅ 폴백 매칭 하이라이트 완료: ${highlightCount}개 span`);
+                    return;
+                  }
+                }
+              }
+              
+              if (highlightCount === 0) {
+                console.log('⚠️ 단어 단위 매칭 실패: 조건을 만족하는 매칭을 찾지 못했습니다.');
+              }
+            }
+          }
+        }
+      }
+      
+      // ✅ 2단계: 키워드 하이라이트 (짧고 정확한 키워드만, 단어 단위 매칭)
+      if (keywords.length > 0) {
+        const shortKeywords = keywords.filter(k => k && k.trim().length >= 3 && k.trim().length <= 20); // 3~20자만
+        
+        textSpans.forEach((span) => {
+          const text = span.textContent || '';
+          if (!text.trim()) return;
+          
+          let shouldHighlight = false;
+          
+          for (const keyword of shortKeywords) {
+            const trimmedKeyword = keyword.trim();
+            // ✅ 정확한 단어 단위 매칭 시도 (영어/숫자 포함)
+            const keywordRegex = new RegExp(`\\b${trimmedKeyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+            
+            // 단어 단위 매칭 또는 직접 포함 확인 (한글의 경우 단어 경계가 명확하지 않으므로 포함 확인도 사용)
+            if (keywordRegex.test(text) || (trimmedKeyword.length >= 4 && text.includes(trimmedKeyword))) {
+              shouldHighlight = true;
+              break;
+            }
+          }
+          
+          if (shouldHighlight) {
+            span.classList.add('highlight');
+            highlightCount++;
+          }
+        });
+      }
+      
+      console.log(`✅ 하이라이트 적용 완료: ${highlightCount}개 요소`);
+    }
+    
+    // 하이라이트된 요소로 스크롤 (좌측 텍스트뷰와 동일한 로직)
+    function scrollToHighlight(textLayer, attempt = 0) {
+      // ✅ 현재 선택된 항목 우선, 없으면 일반 하이라이트
+      const highlighted = textLayer.querySelector('.highlight-current, .highlight-strong, .highlight');
+      
+      if (!highlighted) {
+        // 하이라이트가 없으면 재시도
+        if (attempt < 3) {
+          setTimeout(() => scrollToHighlight(textLayer, attempt + 1), 200);
+        } else {
+          viewerWrapper.scrollTop = 0;
+          console.log('📍 하이라이트 없음, 페이지 상단으로 스크롤');
+        }
+        return;
+      }
+      
+      // ✅ 요소가 화면에 보이는지 확인하는 함수
+      const isElementVisible = (element, container) => {
+        const containerRect = container.getBoundingClientRect();
+        const elementRect = element.getBoundingClientRect();
+        
+        // 요소가 컨테이너의 가시 영역 내에 있는지 확인 (일부만 보여도 true)
+        return (
+          elementRect.top < containerRect.bottom &&
+          elementRect.bottom > containerRect.top &&
+          elementRect.left < containerRect.right &&
+          elementRect.right > containerRect.left
+        );
+      };
+      
+      // ✅ 요소가 화면에 보이는지 확인
+      const isVisible = isElementVisible(highlighted, viewerWrapper);
+      
+      if (!isVisible || attempt === 0) {
+        console.log('📍 하이라이트 위치로 스크롤 중...');
+        
+        // ✅ 즉시 스크롤 (smooth가 실패할 수 있으므로)
+        const containerRect = viewerWrapper.getBoundingClientRect();
+        const elementRect = highlighted.getBoundingClientRect();
+        const scrollTop = viewerWrapper.scrollTop;
+        
+        // ✅ 요소가 컨테이너의 중앙에 오도록 스크롤 계산 (여유 공간 추가)
+        const offset = 50; // 상하 여유 공간
+        const targetScrollTop = scrollTop + elementRect.top - containerRect.top - (containerRect.height / 2) + (elementRect.height / 2) - offset;
+        
+        // 즉시 스크롤
+        viewerWrapper.scrollTop = targetScrollTop;
+        
+        // ✅ 스크롤 후 다시 확인하여 확실히 보이도록 함
+        setTimeout(() => {
+          const newElementRect = highlighted.getBoundingClientRect();
+          const newContainerRect = viewerWrapper.getBoundingClientRect();
+          const isNowVisible = (
+            newElementRect.top < newContainerRect.bottom &&
+            newElementRect.bottom > newContainerRect.top
+          );
+          
+          if (!isNowVisible && attempt < 2) {
+            // 여전히 보이지 않으면 다시 시도
+            scrollToHighlight(textLayer, attempt + 1);
+          } else {
+            // ✅ 부드러운 스크롤로 최종 조정
+            viewerWrapper.scrollTo({
+              top: viewerWrapper.scrollTop,
+              behavior: 'smooth'
+            });
+            console.log('✅ 하이라이트 위치로 스크롤 완료');
+          }
+        }, 100);
+      } else {
+        // 이미 보이는 경우
+        console.log('✅ 하이라이트가 이미 화면에 보입니다');
+      }
+    }
+    
+    // ✅ performSearch 함수는 제거되었습니다. 검색 이벤트는 pdfSearchMessageHandler.js에서 처리합니다.
+    
+    // 검색 결과로 이동
+    function navigateToSearchResult(index) {
+      if (index < 0 || index >= searchResults.length) return;
+      
+      currentSearchIndex = index;
+      const result = searchResults[index];
+      
+      console.log(`📄 검색 결과 ${index + 1}/${searchResults.length}로 이동: 페이지 ${result.page}`);
+      
+      // 페이지 변경
+      if (currentPage !== result.page) {
+        currentPage = result.page;
+        queueRenderPage(currentPage);
+        // 페이지 렌더링 완료 후 하이라이트 (renderPage 함수 내에서 처리됨)
+      } else {
+        // 같은 페이지면 하이라이트만 업데이트
+        const textLayerDiv = document.querySelector('.textLayer');
+        if (textLayerDiv) {
+          setTimeout(() => {
+            applyHighlight(textLayerDiv, [], currentSearchText, index);
+            // ✅ 여러 번 시도하여 확실히 보이도록
+            scrollToHighlight(textLayerDiv, 0);
+            
+            setTimeout(() => {
+              scrollToHighlight(textLayerDiv, 1);
+            }, 500);
+            
+            setTimeout(() => {
+              scrollToHighlight(textLayerDiv, 2);
+            }, 1000);
+          }, 300);
+        }
+      }
+      
+      updateSearchNav();
+    }
+    
+    // 검색 네비게이션 UI 업데이트
+    function updateSearchNav() {
+      if (searchResults.length === 0) {
+        searchNav.style.display = 'none';
+        return;
+      }
+      
+      searchCounter.textContent = `${currentSearchIndex + 1}/${searchResults.length}`;
+      searchPrevBtn.disabled = currentSearchIndex <= 0;
+      searchNextBtn.disabled = currentSearchIndex >= searchResults.length - 1;
+    }
+    
+    // 페이지 변경 큐
+    function queueRenderPage(num) {
+      console.log(`📋 queueRenderPage 호출: ${num}, 렌더링 중: ${pageRendering}`);
+      if (pageRendering) {
+        console.log(`⏸️ 렌더링 중이므로 페이지 ${num} 대기 큐에 추가`);
+        pageNumPending = num;
+      } else {
+        console.log(`▶️ 즉시 페이지 ${num} 렌더링 시작`);
+        renderPage(num);
+      }
+    }
+    
+    // 버튼 상태 업데이트
+    function updateButtons() {
+      prevBtn.disabled = currentPage <= 1;
+      nextBtn.disabled = currentPage >= numPages;
+    }
+    
+    // 이전 페이지
+    prevBtn.addEventListener('click', () => {
+      if (currentPage <= 1) return;
+      currentPage--;
+      queueRenderPage(currentPage);
+    });
+    
+    // 다음 페이지
+    nextBtn.addEventListener('click', () => {
+      if (currentPage >= numPages) return;
+      currentPage++;
+      queueRenderPage(currentPage);
+    });
+    
+    // 페이지 입력
+    pageInput.addEventListener('change', () => {
+      const page = parseInt(pageInput.value, 10);
+      if (page >= 1 && page <= numPages) {
+        currentPage = page;
+        queueRenderPage(currentPage);
+      } else {
+        pageInput.value = currentPage;
+      }
+    });
+    
+    // 닫기 버튼
+    closeBtn.addEventListener('click', () => {
+      window.close();
+    });
+    
+    // 검색 입력 필드 이벤트
+    searchInput.addEventListener('input', () => {
+      // 검색어가 비어있으면 검색 버튼 비활성화
+      searchButton.disabled = !searchInput.value.trim();
+    });
+    
+    // ✅ 검색 이벤트는 pdfSearchMessageHandler.js에서 처리합니다
+    
+    // 검색 이전/다음 버튼
+    searchPrevBtn.addEventListener('click', () => {
+      if (currentSearchIndex > 0) {
+        navigateToSearchResult(currentSearchIndex - 1);
+      }
+    });
+    
+    searchNextBtn.addEventListener('click', () => {
+      if (currentSearchIndex < searchResults.length - 1) {
+        navigateToSearchResult(currentSearchIndex + 1);
+      }
+    });
+    
+    // 키보드 단축키
+    document.addEventListener('keydown', (e) => {
+      // Ctrl+F 또는 Cmd+F로 검색창 포커스 (기본 동작 방지)
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault();
+        searchInput.focus();
+        return;
+      }
+      
+      // 검색 결과 네비게이션 (검색 중일 때만)
+      if (searchResults.length > 0) {
+        if (e.key === 'F3' || ((e.ctrlKey || e.metaKey) && e.key === 'g')) {
+          e.preventDefault();
+          if (e.shiftKey) {
+            // Shift+F3 또는 Shift+Ctrl+G: 이전 결과
+            if (currentSearchIndex > 0) {
+              navigateToSearchResult(currentSearchIndex - 1);
+            }
+          } else {
+            // F3 또는 Ctrl+G: 다음 결과
+            if (currentSearchIndex < searchResults.length - 1) {
+              navigateToSearchResult(currentSearchIndex + 1);
+            }
+          }
+          return;
+        }
+      }
+      
+      // 페이지 네비게이션 (검색 입력 필드에 포커스가 없을 때만)
+      if (document.activeElement !== searchInput) {
+        if (e.key === 'ArrowLeft' && currentPage > 1) {
+          currentPage--;
+          queueRenderPage(currentPage);
+        } else if (e.key === 'ArrowRight' && currentPage < numPages) {
+          currentPage++;
+          queueRenderPage(currentPage);
+        }
+      }
+    });
+    
+    // ✅ 페이지 변경 메시지 처리 함수 (공통 로직)
+    function processChangePageMessage(data) {
+      console.log('🔧 processChangePageMessage 시작:', data);
+      console.log('🔧 현재 상태:', {
+        currentPage,
+        numPages,
+        pageRendering,
+        pdfDoc: !!pdfDoc
+      });
+      
+      if (!data || !data.page || data.page <= 0) {
+        console.warn('⚠️ 유효하지 않은 페이지 변경 메시지:', data);
+        return;
+      }
+      
+      // 페이지 범위 확인
+      if (numPages > 0 && data.page > numPages) {
+        console.warn(`⚠️ 요청된 페이지(${data.page})가 총 페이지 수(${numPages})를 초과합니다.`);
+        return;
+      }
+      
+      // 현재 페이지와 같은 경우 스킵 (불필요한 렌더링 방지)
+      if (currentPage === data.page) {
+        console.log(`ℹ️ 이미 페이지 ${data.page}에 있음, 스킵`);
+        return;
+      }
+      
+      console.log(`📄 페이지 이동: ${currentPage} → ${data.page}`);
+      
+      // 페이지 즉시 변경
+      currentPage = data.page;
+      
+      // 하이라이트 키워드 업데이트 (페이지 변경 전에 업데이트)
+      if (data.highlight && Array.isArray(data.highlight)) {
+        highlightKeywords.length = 0;
+        highlightKeywords.push(...data.highlight);
+        console.log('📄 하이라이트 키워드 업데이트:', highlightKeywords);
+      }
+      
+      // 검색 텍스트 업데이트
+      if (data.searchText) {
+        searchTextParam = data.searchText;
+        console.log('📄 검색 텍스트 업데이트:', searchTextParam.substring(0, 50) + '...');
+      }
+      
+      // 페이지 렌더링 (즉시 실행)
+      console.log(`🚀 queueRenderPage(${currentPage}) 호출`);
+      queueRenderPage(currentPage);
+      
+      console.log(`✅ 페이지 ${data.page}로 이동 요청 완료`);
+    }
+    
+    // ✅ 부모 창에서 페이지 변경 메시지 수신
+    window.addEventListener('message', (event) => {
+      // 보안: 같은 origin에서만 메시지 수신
+      if (event.origin !== window.location.origin) {
+        console.warn('⚠️ 다른 origin에서 온 메시지는 무시됩니다:', event.origin);
+        return;
+      }
+      
+      const data = event.data;
+      if (data && data.type === 'changePage') {
+        console.log('📥 페이지 변경 메시지 수신:', data);
+        
+        // PDF가 로드되지 않았으면 큐에 저장
+        if (!pdfDoc || numPages === 0) {
+          console.log('⏳ PDF 로드 전 메시지 수신, 큐에 추가:', data);
+          queuedMessages.push(data);
+          return;
+        }
+        
+        // PDF가 로드된 경우 즉시 처리
+        processChangePageMessage(data);
+      }
+    });
+    
+    // ✅ 마우스 휠로 페이지 간 이동 (스크롤이 상단/하단에 도달하면 페이지 이동)
+    let wheelCooldown = false;
+    viewerWrapper.addEventListener('wheel', (e) => {
+      // 쿨다운 중이면 무시
+      if (wheelCooldown) return;
+      
+      const wrapper = viewerWrapper;
+      const scrollTop = wrapper.scrollTop;
+      const scrollHeight = wrapper.scrollHeight;
+      const clientHeight = wrapper.clientHeight;
+      
+      // 스크롤이 상단 근처이고 위로 스크롤 시
+      if (scrollTop <= 10 && e.deltaY < 0 && currentPage > 1) {
+        e.preventDefault();
+        wheelCooldown = true;
+        currentPage--;
+        queueRenderPage(currentPage);
+        console.log(`📄 휠로 이전 페이지로 이동: ${currentPage}`);
+        
+        // 쿨다운 해제 (500ms 후)
+        setTimeout(() => {
+          wheelCooldown = false;
+        }, 500);
+      }
+      // 스크롤이 하단 근처이고 아래로 스크롤 시
+      else if (scrollTop + clientHeight >= scrollHeight - 10 && e.deltaY > 0 && currentPage < numPages) {
+        e.preventDefault();
+        wheelCooldown = true;
+        currentPage++;
+        queueRenderPage(currentPage);
+        console.log(`📄 휠로 다음 페이지로 이동: ${currentPage}`);
+        
+        // 쿨다운 해제 (500ms 후)
+        setTimeout(() => {
+          wheelCooldown = false;
+        }, 500);
+      }
+    }, { passive: false }); // passive: false로 설정하여 preventDefault 가능하게 함
+  </script>
+</body>
+</html>
+

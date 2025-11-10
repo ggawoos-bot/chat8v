@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PDF 뷰어</title>
+  <link rel="stylesheet" href="styles/pdf-viewer.css">
+</head>
+<body>
+  <div id="pdf-viewer-container">
+    <div class="header">
+      <div class="header-top">
+        <div class="title" id="pdf-title">PDF 로딩 중...</div>
+        <div class="controls">
+          <button id="prev-btn" disabled>← 이전</button>
+          <div class="page-info">
+            <span>페이지</span>
+            <input type="number" id="page-input" min="1" value="1" disabled>
+            <span id="total-pages">/ ?</span>
+          </div>
+          <button id="next-btn" disabled>다음 →</button>
+          <button id="close-btn">닫기</button>
+        </div>
+      </div>
+      <div class="search-container">
+        <input 
+          type="text" 
+          id="search-input" 
+          class="search-input" 
+          placeholder="현재 문서에서 검색..."
+          autocomplete="off"
+        />
+        <button id="search-button" class="search-button" disabled>검색</button>
+        <div class="search-nav" id="search-nav" style="display: none;">
+          <button id="search-prev-btn" disabled>‹</button>
+          <span id="search-counter" style="font-size: 12px; color: #666; padding: 0 8px;">0/0</span>
+          <button id="search-next-btn" disabled>›</button>
+        </div>
+      </div>
+    </div>
+    <div class="viewer-wrapper" id="viewer-wrapper">
+      <div class="loading">PDF 로딩 중...</div>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="scripts/pdf-highlight-reference.js"></script>
+  <script src="scripts/pdf-highlight-search.js"></script>
+  <script src="scripts/pdf-renderer-reference.js"></script>
+  <script src="scripts/pdf-renderer-search.js"></script>
+  <script src="scripts/pdf-search.js"></script>
+  <script>
+    // PDF.js Worker 설정
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    
+    // URL 파라미터에서 정보 가져오기
+    const urlParams = new URLSearchParams(window.location.search);
+    const pdfUrlParam = urlParams.get('url') || '';
+    const pdfUrl = pdfUrlParam ? decodeURIComponent(pdfUrlParam) : '';
+    const initialPage = parseInt(urlParams.get('page') || '1', 10);
+    const titleParam = urlParams.get('title') || '';
+    const title = titleParam ? decodeURIComponent(titleParam) : 'PDF 문서';
+    
+    // 하이라이트 키워드 가져오기 (변수로 선언하여 나중에 업데이트 가능하게)
+    const highlightParam = urlParams.get('highlight') || '';
+    let searchTextParam = urlParams.get('searchText') || '';
+    let highlightKeywords = highlightParam 
+      ? highlightParam.split(',').filter(k => k.trim().length > 0).map(k => decodeURIComponent(k.trim()))
+      : [];
+    
+    console.log('📄 PDF 뷰어 초기화:', {
+      pdfUrl: pdfUrl,
+      initialPage: initialPage,
+      title: title,
+      highlightKeywords: highlightKeywords,
+      searchText: searchTextParam.substring(0, 50),
+      fullUrl: window.location.href
+    });
+    
+    if (!pdfUrl) {
+      const errorHtml = '<div class="error"><div>❌ PDF URL이 제공되지 않았습니다.</div><div class="error-message">URL 파라미터를 확인하세요.</div></div>';
+      document.getElementById('viewer-wrapper').innerHTML = errorHtml;
+      console.error('❌ PDF URL이 없습니다. URL 파라미터:', window.location.search);
+      throw new Error('PDF URL이 없습니다.');
+    }
+    
+    // 제목 설정
+    document.getElementById('pdf-title').textContent = title;
+    
+    // ✅ 검색 입력 필드 포커스 함수 (여러 시점에서 호출)
+    function focusSearchInput() {
+      const searchInput = document.getElementById('search-input');
+      if (searchInput && document.activeElement !== searchInput) {
+        try {
+          searchInput.focus();
+          console.log('✅ 검색 입력 필드에 포커스 설정');
+        } catch (e) {
+          console.warn('⚠️ 포커스 설정 실패:', e);
+        }
+      }
+    }
+    
+    // ✅ DOM 로드 완료 시 포커스 시도
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', () => {
+        setTimeout(focusSearchInput, 100);
+      });
+    } else {
+      setTimeout(focusSearchInput, 100);
+    }
+    
+    // 전역 변수 선언 (모듈에서 사용)
+    let pdfDoc = null;
+    let currentPage = initialPage;
+    let numPages = 0;
+    // ✅ 네임스페이스 분리: 참조용과 검색용 렌더링 상태 분리
+    let referenceRendering = false;
+    let referencePending = null;
+    let searchRendering = false;
+    let searchPending = null;
+    // ✅ PDF 로드 전 수신된 메시지를 저장하는 큐
+    const queuedMessages = [];
+    
+    // ✅ 네임스페이스 분리: 참조 뷰어와 검색 뷰어 분리
+    window.referenceViewer = {
+      currentPage: initialPage,
+      rendering: false,
+      pending: null,
+      mode: 'reference'
+    };
+    
+    window.searchViewer = {
+      currentPage: initialPage,
+      rendering: false,
+      pending: null,
+      mode: 'search',
+      searchText: '',
+      searchIndex: -1,
+      searchResults: []
+    };
+    
+    // 전역 스코프에 노출 (모듈에서 사용 - 하위 호환성 유지)
+    window.pdfDoc = null;
+    window.currentPage = currentPage;
+    window.numPages = numPages;
+    
+    // ✅ 뷰어 모드 설정 (기본값: reference)
+    window.viewerMode = 'reference';
+    
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    // 전역 스코프에 노출 (하이라이트 모듈에서 사용)
+    const viewerWrapper = document.getElementById('viewer-wrapper');
+    window.viewerWrapper = viewerWrapper; // 전역 스코프에 노출
+    viewerWrapper.innerHTML = '';
+    
+    // 캔버스와 텍스트 레이어를 담을 컨테이너 생성
+    const pageContainer = document.createElement('div');
+    pageContainer.style.position = 'relative';
+    pageContainer.style.display = 'inline-block';
+    viewerWrapper.appendChild(pageContainer);
+    pageContainer.appendChild(canvas);
+    
+    // 텍스트 레이어 컨테이너 생성
+    const textLayerDiv = document.createElement('div');
+    textLayerDiv.className = 'textLayer';
+    pageContainer.appendChild(textLayerDiv);
+    
+    // 요소 참조
+    const prevBtn = document.getElementById('prev-btn');
+    const nextBtn = document.getElementById('next-btn');
+    const pageInput = document.getElementById('page-input');
+    const totalPagesSpan = document.getElementById('total-pages');
+    const closeBtn = document.getElementById('close-btn');
+    const searchInput = document.getElementById('search-input');
+    const searchButton = document.getElementById('search-button');
+    const searchNav = document.getElementById('search-nav');
+    const searchPrevBtn = document.getElementById('search-prev-btn');
+    const searchNextBtn = document.getElementById('search-next-btn');
+    const searchCounter = document.getElementById('search-counter');
+    
+    // 전역 스코프에 노출 (검색 모듈에서 사용)
+    window.searchButton = searchButton;
+    window.searchNav = searchNav;
+    window.searchPrevBtn = searchPrevBtn;
+    window.searchNextBtn = searchNextBtn;
+    window.searchCounter = searchCounter;
+    
+    // 검색 관련 변수 (네임스페이스로 이동)
+    // window.searchViewer에 통합됨
+    
+    // PDF 로드
+    console.log('📥 PDF 로딩 시작:', pdfUrl);
+    pdfjsLib.getDocument({
+      url: pdfUrl,
+      httpHeaders: {},
+      withCredentials: false
+    }).promise.then((pdf) => {
+      pdfDoc = pdf;
+      window.pdfDoc = pdf; // 전역 스코프 업데이트
+      numPages = pdf.numPages;
+      window.numPages = numPages; // 전역 스코프 업데이트
+      
+      totalPagesSpan.textContent = `/ ${numPages}`;
+      pageInput.max = numPages;
+      pageInput.disabled = false;
+      prevBtn.disabled = false;
+      nextBtn.disabled = false;
+      searchButton.disabled = false;
+      
+      // ✅ URL에서 검색 텍스트가 있어도 검색창에 자동 입력하지 않음
+      // (하이라이트는 searchTextParam을 사용하므로 유지)
+      // if (searchTextParam) {
+      //   searchInput.value = searchTextParam;
+      //   performSearch(searchTextParam);
+      // }
+      
+      // ✅ 큐에 쌓인 메시지 처리 (PDF 로드 전에 받은 메시지들)
+      if (queuedMessages.length > 0) {
+        console.log(`📥 [참조] 큐에 쌓인 ${queuedMessages.length}개 메시지 처리 시작`);
+        queuedMessages.forEach((msg) => {
+          processChangePageMessage(msg);
+        });
+        queuedMessages.length = 0; // 큐 비우기
+      }
+      
+      // 초기 페이지 렌더링 (큐 처리 후, 마지막 메시지의 페이지가 있으면 그것으로, 없으면 initialPage로)
+      // 참조 모드로 시작
+      window.viewerMode = 'reference';
+      window.referenceViewer.currentPage = currentPage;
+      renderPage(currentPage);
+      
+      console.log('✅ PDF 로드 완료:', numPages, '페이지');
+      
+      // ✅ 검색 입력 필드에 자동 포커스 (PDF 로드 완료 후)
+      setTimeout(focusSearchInput, 300);
+    }).catch((error) => {
+      console.error('❌ PDF 로드 오류:', error);
+      console.error('❌ PDF URL:', pdfUrl);
+      console.error('❌ 전체 에러 객체:', error);
+      
+      let errorMessage = error.message || '알 수 없는 오류';
+      if (error.name === 'MissingPDFException') {
+        errorMessage = 'PDF 파일을 찾을 수 없습니다. 파일 경로를 확인하세요.';
+      } else if (error.name === 'InvalidPDFException') {
+        errorMessage = '유효하지 않은 PDF 파일입니다.';
+      } else if (error.message && error.message.includes('Network')) {
+        errorMessage = '네트워크 오류가 발생했습니다. 연결을 확인하세요.';
+      } else if (error.message && error.message.includes('CORS')) {
+        errorMessage = 'CORS 오류가 발생했습니다. 서버 설정을 확인하세요.';
+      }
+      
+      viewerWrapper.innerHTML = `
+        <div class="error">
+          <div>❌ PDF 로드 실패</div>
+          <div class="error-message">${errorMessage}</div>
+          <div class="error-message" style="margin-top: 8px; font-size: 12px; color: #999;">URL: ${pdfUrl}</div>
+          <div class="error-message" style="margin-top: 4px; font-size: 11px; color: #aaa;">에러 타입: ${error.name || 'Unknown'}</div>
+        </div>
+      `;
+    });
+    
+    // 페이지 렌더링 (텍스트 레이어 및 하이라이트 포함)
+    function renderPage(num) {
+      const currentMode = window.viewerMode || 'reference';
+      const isSearchMode = currentMode === 'search';
+      
+      console.log(`🔄 renderPage 호출: ${num} (현재: ${currentPage}, 모드: ${currentMode}, 렌더링 중: ${isSearchMode ? searchRendering : referenceRendering})`);
+      
+      if (isSearchMode) {
+        // 검색 모드: 검색용 렌더러 사용
+        searchRendering = true;
+        window.searchViewer.rendering = true;
+        const searchIndex = window.searchViewer.searchIndex || 0;
+        
+        renderPageForSearch(
+          num,
+          canvas,
+          ctx,
+          textLayerDiv,
+          {
+            searchText: window.searchViewer.searchText,
+            searchIndex: searchIndex,
+            onComplete: (pageNum) => {
+              searchRendering = false;
+              window.searchViewer.rendering = false;
+              console.log(`✅ [검색] 페이지 ${pageNum} 렌더링 완전히 완료`);
+              
+              // ✅ 초기 페이지 렌더링 완료 시 검색 입력 필드에 포커스
+              if (pageNum === currentPage && pageNum === initialPage) {
+                setTimeout(focusSearchInput, 100);
+              }
+              
+              // 대기 중인 페이지 처리
+              if (searchPending !== null) {
+                const pending = searchPending;
+                searchPending = null;
+                window.searchViewer.pending = null;
+                console.log(`📄 [검색] 대기 중인 페이지 ${pending} 렌더링 시작`);
+                renderPage(pending);
+              }
+            }
+          }
+        );
+      } else {
+        // 참조 모드: 참조용 렌더러 사용
+        referenceRendering = true;
+        window.referenceViewer.rendering = true;
+        
+        renderPageForReference(
+          num,
+          canvas,
+          ctx,
+          textLayerDiv,
+          {
+            highlightKeywords: highlightKeywords,
+            searchText: searchTextParam,
+            onComplete: (pageNum) => {
+              referenceRendering = false;
+              window.referenceViewer.rendering = false;
+              console.log(`✅ [참조] 페이지 ${pageNum} 렌더링 완전히 완료`);
+              
+              // ✅ 초기 페이지 렌더링 완료 시 검색 입력 필드에 포커스
+              if (pageNum === currentPage && pageNum === initialPage) {
+                setTimeout(focusSearchInput, 100);
+              }
+              
+              // 대기 중인 페이지 처리
+              if (referencePending !== null) {
+                const pending = referencePending;
+                referencePending = null;
+                window.referenceViewer.pending = null;
+                console.log(`📄 [참조] 대기 중인 페이지 ${pending} 렌더링 시작`);
+                renderPage(pending);
+              }
+            }
+          }
+        );
+      }
+      
+      // ✅ 페이지 입력 필드 즉시 업데이트
+      pageInput.value = num;
+      updateButtons();
+    }
+    
+    
+    // 페이지 변경 큐
+    function queueRenderPage(num) {
+      const currentMode = window.viewerMode || 'reference';
+      const isSearchMode = currentMode === 'search';
+      const isRendering = isSearchMode ? searchRendering : referenceRendering;
+      const pending = isSearchMode ? searchPending : referencePending;
+      
+      console.log(`📋 queueRenderPage 호출: ${num}, 모드: ${currentMode}, 렌더링 중: ${isRendering}`);
+      
+      if (isRendering) {
+        console.log(`⏸️ [${currentMode}] 렌더링 중이므로 페이지 ${num} 대기 큐에 추가`);
+        if (isSearchMode) {
+          searchPending = num;
+          window.searchViewer.pending = num;
+        } else {
+          referencePending = num;
+          window.referenceViewer.pending = num;
+        }
+      } else {
+        console.log(`▶️ [${currentMode}] 즉시 페이지 ${num} 렌더링 시작`);
+        renderPage(num);
+      }
+    }
+    // 전역 스코프에 노출 (검색 모듈에서 사용)
+    window.queueRenderPage = queueRenderPage;
+    
+    // 버튼 상태 업데이트
+    function updateButtons() {
+      prevBtn.disabled = currentPage <= 1;
+      nextBtn.disabled = currentPage >= numPages;
+    }
+    
+    // 이전 페이지
+    prevBtn.addEventListener('click', () => {
+      if (currentPage <= 1) return;
+      currentPage--;
+      window.currentPage = currentPage; // 하위 호환성
+      // 현재 모드에 따라 해당 뷰어의 페이지 업데이트
+      const currentMode = window.viewerMode || 'reference';
+      if (currentMode === 'search') {
+        window.searchViewer.currentPage = currentPage;
+      } else {
+        window.referenceViewer.currentPage = currentPage;
+      }
+      queueRenderPage(currentPage);
+    });
+    
+    // 다음 페이지
+    nextBtn.addEventListener('click', () => {
+      if (currentPage >= numPages) return;
+      currentPage++;
+      window.currentPage = currentPage; // 하위 호환성
+      // 현재 모드에 따라 해당 뷰어의 페이지 업데이트
+      const currentMode = window.viewerMode || 'reference';
+      if (currentMode === 'search') {
+        window.searchViewer.currentPage = currentPage;
+      } else {
+        window.referenceViewer.currentPage = currentPage;
+      }
+      queueRenderPage(currentPage);
+    });
+    
+    // 페이지 입력
+    pageInput.addEventListener('change', () => {
+      const page = parseInt(pageInput.value, 10);
+      if (page >= 1 && page <= numPages) {
+        currentPage = page;
+        window.currentPage = currentPage; // 하위 호환성
+        // 현재 모드에 따라 해당 뷰어의 페이지 업데이트
+        const currentMode = window.viewerMode || 'reference';
+        if (currentMode === 'search') {
+          window.searchViewer.currentPage = currentPage;
+        } else {
+          window.referenceViewer.currentPage = currentPage;
+        }
+        queueRenderPage(currentPage);
+      } else {
+        pageInput.value = currentPage;
+      }
+    });
+    
+    // 닫기 버튼
+    closeBtn.addEventListener('click', () => {
+      window.close();
+    });
+    
+    // 검색 입력 필드 이벤트
+    searchInput.addEventListener('input', () => {
+      // 검색어가 비어있으면 검색 버튼 비활성화
+      searchButton.disabled = !searchInput.value.trim();
+    });
+    
+    // ✅ Enter 키로 검색 및 다음 결과 이동
+    let lastSearchText = '';
+    
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const searchText = searchInput.value.trim();
+        
+        if (!searchText) return;
+        
+        // 같은 검색어이고 검색 결과가 있으면 다음 결과로 이동
+        if (lastSearchText === searchText && 
+            window.searchViewer.searchResults && window.searchViewer.searchResults.length > 0 && 
+            window.searchViewer.searchIndex >= 0) {
+          // 다음 검색 결과로 이동
+          if (window.searchViewer.searchIndex < window.searchViewer.searchResults.length - 1) {
+            navigateToSearchResult(window.searchViewer.searchIndex + 1);
+          } else {
+            // 마지막 결과면 첫 번째 결과로 (순환)
+            navigateToSearchResult(0);
+          }
+        } else {
+          // 검색어가 변경되었거나 검색 결과가 없으면 새로운 검색 수행
+          lastSearchText = searchText;
+          performSearch(searchText);
+        }
+      }
+    });
+    
+    // 검색 버튼 클릭
+    searchButton.addEventListener('click', () => {
+      const searchText = searchInput.value.trim();
+      if (!searchText) return;
+      
+      // 같은 검색어이고 검색 결과가 있으면 다음 결과로 이동
+      if (lastSearchText === searchText && 
+          window.searchViewer.searchResults && window.searchViewer.searchResults.length > 0 && 
+          window.searchViewer.searchIndex >= 0) {
+        // 다음 검색 결과로 이동
+        if (window.searchViewer.searchIndex < window.searchViewer.searchResults.length - 1) {
+          navigateToSearchResult(window.searchViewer.searchIndex + 1);
+        } else {
+          // 마지막 결과면 첫 번째 결과로 (순환)
+          navigateToSearchResult(0);
+        }
+      } else {
+        // 검색어가 변경되었거나 검색 결과가 없으면 새로운 검색 수행
+        lastSearchText = searchText;
+        performSearch(searchText);
+      }
+    });
+    
+    // 검색 이전/다음 버튼
+    searchPrevBtn.addEventListener('click', () => {
+      if (window.searchViewer.searchIndex > 0) {
+        navigateToSearchResult(window.searchViewer.searchIndex - 1);
+      }
+    });
+    
+    searchNextBtn.addEventListener('click', () => {
+      if (window.searchViewer.searchIndex < window.searchViewer.searchResults.length - 1) {
+        navigateToSearchResult(window.searchViewer.searchIndex + 1);
+      }
+    });
+    
+    // 키보드 단축키
+    document.addEventListener('keydown', (e) => {
+      // Ctrl+F 또는 Cmd+F로 검색창 포커스 (기본 동작 방지)
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault();
+        searchInput.focus();
+        return;
+      }
+      
+      // 검색 결과 네비게이션 (검색 중일 때만)
+      if (window.searchViewer.searchResults && window.searchViewer.searchResults.length > 0) {
+        if (e.key === 'F3' || ((e.ctrlKey || e.metaKey) && e.key === 'g')) {
+          e.preventDefault();
+          if (e.shiftKey) {
+            // Shift+F3 또는 Shift+Ctrl+G: 이전 결과
+            if (window.searchViewer.searchIndex > 0) {
+              navigateToSearchResult(window.searchViewer.searchIndex - 1);
+            }
+          } else {
+            // F3 또는 Ctrl+G: 다음 결과
+            if (window.searchViewer.searchIndex < window.searchViewer.searchResults.length - 1) {
+              navigateToSearchResult(window.searchViewer.searchIndex + 1);
+            }
+          }
+          return;
+        }
+      }
+      
+      // 페이지 네비게이션 (검색 입력 필드에 포커스가 없을 때만)
+      if (document.activeElement !== searchInput) {
+        const currentMode = window.viewerMode || 'reference';
+        
+        if (e.key === 'ArrowLeft' && currentPage > 1) {
+          currentPage--;
+          window.currentPage = currentPage; // 하위 호환성
+          // 현재 모드에 따라 해당 뷰어의 페이지 업데이트
+          if (currentMode === 'search') {
+            window.searchViewer.currentPage = currentPage;
+          } else {
+            window.referenceViewer.currentPage = currentPage;
+          }
+          queueRenderPage(currentPage);
+        } else if (e.key === 'ArrowRight' && currentPage < numPages) {
+          currentPage++;
+          window.currentPage = currentPage; // 하위 호환성
+          // 현재 모드에 따라 해당 뷰어의 페이지 업데이트
+          if (currentMode === 'search') {
+            window.searchViewer.currentPage = currentPage;
+          } else {
+            window.referenceViewer.currentPage = currentPage;
+          }
+          queueRenderPage(currentPage);
+        }
+      }
+    });
+    
+    // ✅ 페이지 변경 메시지 처리 함수 (참조 모드 전용)
+    function processChangePageMessage(data) {
+      console.log('🔧 [참조] processChangePageMessage 시작:', data);
+      
+      // 참조 모드로 전환
+      window.viewerMode = 'reference';
+      
+      console.log('🔧 [참조] 현재 상태:', {
+        currentPage: window.referenceViewer.currentPage,
+        numPages,
+        rendering: window.referenceViewer.rendering,
+        pdfDoc: !!pdfDoc
+      });
+      
+      if (!data || !data.page || data.page <= 0) {
+        console.warn('⚠️ [참조] 유효하지 않은 페이지 변경 메시지:', data);
+        return;
+      }
+      
+      // 페이지 범위 확인
+      if (numPages > 0 && data.page > numPages) {
+        console.warn(`⚠️ [참조] 요청된 페이지(${data.page})가 총 페이지 수(${numPages})를 초과합니다.`);
+        return;
+      }
+      
+      // 현재 페이지와 같은 경우 스킵 (불필요한 렌더링 방지)
+      if (window.referenceViewer.currentPage === data.page) {
+        console.log(`ℹ️ [참조] 이미 페이지 ${data.page}에 있음, 스킵`);
+        return;
+      }
+      
+      console.log(`📄 [참조] 페이지 이동: ${window.referenceViewer.currentPage} → ${data.page}`);
+      
+      // 참조 뷰어 페이지 업데이트
+      currentPage = data.page;
+      window.currentPage = currentPage; // 하위 호환성
+      window.referenceViewer.currentPage = currentPage;
+      
+      // 하이라이트 키워드 업데이트 (페이지 변경 전에 업데이트)
+      if (data.highlight && Array.isArray(data.highlight)) {
+        highlightKeywords.length = 0;
+        highlightKeywords.push(...data.highlight);
+        console.log('📄 [참조] 하이라이트 키워드 업데이트:', highlightKeywords);
+      }
+      
+      // 검색 텍스트 업데이트
+      if (data.searchText) {
+        searchTextParam = data.searchText;
+        console.log('📄 [참조] 검색 텍스트 업데이트:', searchTextParam.substring(0, 50) + '...');
+      }
+      
+      // 페이지 렌더링 (즉시 실행)
+      console.log(`🚀 [참조] queueRenderPage(${currentPage}) 호출`);
+      queueRenderPage(currentPage);
+      
+      console.log(`✅ [참조] 페이지 ${data.page}로 이동 요청 완료`);
+    }
+    
+    // ✅ 부모 창에서 페이지 변경 메시지 수신
+    window.addEventListener('message', (event) => {
+      // 보안: 같은 origin에서만 메시지 수신
+      if (event.origin !== window.location.origin) {
+        console.warn('⚠️ 다른 origin에서 온 메시지는 무시됩니다:', event.origin);
+        return;
+      }
+      
+      const data = event.data;
+      if (data && data.type === 'changePage') {
+        console.log('📥 페이지 변경 메시지 수신:', data);
+        
+        // PDF가 로드되지 않았으면 큐에 저장
+        if (!pdfDoc || numPages === 0) {
+          console.log('⏳ PDF 로드 전 메시지 수신, 큐에 추가:', data);
+          queuedMessages.push(data);
+          return;
+        }
+        
+        // PDF가 로드된 경우 즉시 처리
+        processChangePageMessage(data);
+      }
+    });
+    
+    // ✅ 마우스 휠로 페이지 간 이동 (스크롤이 상단/하단에 도달하면 페이지 이동)
+    let wheelCooldown = false;
+    viewerWrapper.addEventListener('wheel', (e) => {
+      // 쿨다운 중이면 무시
+      if (wheelCooldown) return;
+      
+      const wrapper = viewerWrapper;
+      const scrollTop = wrapper.scrollTop;
+      const scrollHeight = wrapper.scrollHeight;
+      const clientHeight = wrapper.clientHeight;
+      
+      // 스크롤이 상단 근처이고 위로 스크롤 시
+      if (scrollTop <= 10 && e.deltaY < 0 && currentPage > 1) {
+        e.preventDefault();
+        wheelCooldown = true;
+        currentPage--;
+        window.currentPage = currentPage; // 하위 호환성
+        // 현재 모드에 따라 해당 뷰어의 페이지 업데이트
+        const currentMode = window.viewerMode || 'reference';
+        if (currentMode === 'search') {
+          window.searchViewer.currentPage = currentPage;
+        } else {
+          window.referenceViewer.currentPage = currentPage;
+        }
+        queueRenderPage(currentPage);
+        console.log(`📄 [${currentMode}] 휠로 이전 페이지로 이동: ${currentPage}`);
+        
+        // 쿨다운 해제 (500ms 후)
+        setTimeout(() => {
+          wheelCooldown = false;
+        }, 500);
+      }
+      // 스크롤이 하단 근처이고 아래로 스크롤 시
+      else if (scrollTop + clientHeight >= scrollHeight - 10 && e.deltaY > 0 && currentPage < numPages) {
+        e.preventDefault();
+        wheelCooldown = true;
+        currentPage++;
+        window.currentPage = currentPage; // 하위 호환성
+        // 현재 모드에 따라 해당 뷰어의 페이지 업데이트
+        const currentMode = window.viewerMode || 'reference';
+        if (currentMode === 'search') {
+          window.searchViewer.currentPage = currentPage;
+        } else {
+          window.referenceViewer.currentPage = currentPage;
+        }
+        queueRenderPage(currentPage);
+        console.log(`📄 [${currentMode}] 휠로 다음 페이지로 이동: ${currentPage}`);
+        
+        // 쿨다운 해제 (500ms 후)
+        setTimeout(() => {
+          wheelCooldown = false;
+        }, 500);
+      }
+    }, { passive: false }); // passive: false로 설정하여 preventDefault 가능하게 함
+  </script>
+</body>
+</html>
+
