@@ -4,6 +4,7 @@
 /**
  * 검색용 하이라이트 적용 함수
  * 사용자가 입력한 검색어를 사용 (복수 검색어 지원)
+ * 검색 모드에서는 하이라이트 스타일을 적용하지 않음
  * @param {HTMLElement} textLayer - 텍스트 레이어 요소
  * @param {string[]} keywords - 하이라이트할 키워드 배열 (사용 안 함)
  * @param {string} searchText - 검색 텍스트
@@ -19,106 +20,103 @@ function applyHighlightForSearch(textLayer, keywords, searchText) {
     el.classList.remove('highlight', 'highlight-strong', 'highlight-current');
   });
   
-  const textSpans = textLayer.querySelectorAll('span');
-  let highlightCount = 0;
+  // 검색 모드에서는 하이라이트 스타일을 적용하지 않음
+  // 검색 결과 찾기 기능은 pdf-search.js에서 처리
+  console.log('✅ [검색] 하이라이트 스타일 제거 완료 (검색 모드에서는 시각적 하이라이트 없음)');
+}
+
+/**
+ * 검색용 하이라이트된 요소로 스크롤
+ * 검색 모드에서는 하이라이트 스타일을 적용하지 않고 스크롤만 수행
+ * @param {HTMLElement} textLayer - 텍스트 레이어 요소
+ * @param {number} currentIndex - 현재 검색 결과 인덱스
+ */
+function scrollToHighlightForSearch(textLayer, currentIndex = 0) {
+  // 검색 모드에서는 하이라이트 스타일을 적용하지 않음
+  // 검색 결과 위치로 스크롤만 수행 (하이라이트 없이)
+  if (!textLayer || !window.searchViewer || !window.searchViewer.searchText) {
+    return;
+  }
   
-  const trimmedSearchText = searchText.trim();
+  const searchText = window.searchViewer.searchText.trim();
+  if (!searchText) {
+    return;
+  }
   
-  // ✅ 검색용: 공백으로 구분된 복수 검색어 지원
-  const searchQueries = trimmedSearchText
+  // 검색어를 찾아서 해당 위치로 스크롤 (하이라이트 스타일 없이)
+  const searchQueries = searchText
     .split(/\s+/)
     .map(q => q.trim())
     .filter(q => q.length > 0)
     .map(q => q.toLowerCase());
   
-  const isMultiSearch = searchQueries.length > 1;
+  const textSpans = textLayer.querySelectorAll('span');
+  let foundCount = 0;
+  let targetSpan = null;
   
-  console.log(`🔍 [검색] 검색어: ${isMultiSearch ? '복수' : '단일'}`, searchQueries);
-  
-  if (isMultiSearch) {
-    // 복수 검색어: 모든 검색어가 포함된 부분만 하이라이트
+  if (searchQueries.length > 1) {
+    // 복수 검색어: 모든 검색어가 포함된 첫 번째 위치 찾기
     let accumulatedText = '';
     let accumulatedSpans = [];
     
-    textSpans.forEach((span) => {
+    for (const span of textSpans) {
       const text = span.textContent || '';
       if (text.trim()) {
         accumulatedText += text;
         accumulatedSpans.push(span);
         
-        // 모든 검색어가 포함되어 있는지 확인
         const normalizedAccumulated = accumulatedText.toLowerCase();
         const allFound = searchQueries.every(query => 
           normalizedAccumulated.includes(query)
         );
         
+        if (allFound && foundCount === currentIndex) {
+          targetSpan = accumulatedSpans[0];
+          break;
+        }
+        
         if (allFound) {
-          accumulatedSpans.forEach(s => {
-            s.classList.add('highlight-strong');
-            highlightCount++;
-          });
+          foundCount++;
           accumulatedText = '';
           accumulatedSpans = [];
         }
         
-        // 너무 길어지면 초기화
-        if (accumulatedText.length > trimmedSearchText.length * 3) {
+        if (accumulatedText.length > searchText.length * 3) {
           accumulatedText = '';
           accumulatedSpans = [];
         }
       }
-    });
+    }
   } else {
-    // 단일 검색어: 정확한 매칭
+    // 단일 검색어: 해당 인덱스의 위치 찾기
     const query = searchQueries[0];
     const normalizedQuery = query.toLowerCase();
     
-    textSpans.forEach((span) => {
+    for (const span of textSpans) {
       const text = (span.textContent || '').toLowerCase();
       if (text.includes(normalizedQuery)) {
-        span.classList.add('highlight-strong');
-        highlightCount++;
+        if (foundCount === currentIndex) {
+          targetSpan = span;
+          break;
+        }
+        foundCount++;
       }
-    });
+    }
   }
   
-  console.log(`✅ [검색] 하이라이트 적용 완료: ${highlightCount}개 요소`);
-}
-
-/**
- * 검색용 하이라이트된 요소로 스크롤
- * 현재 검색 결과에 해당하는 요소를 강조
- * @param {HTMLElement} textLayer - 텍스트 레이어 요소
- * @param {number} currentIndex - 현재 검색 결과 인덱스
- */
-function scrollToHighlightForSearch(textLayer, currentIndex = 0) {
-  const allHighlighted = textLayer.querySelectorAll('.highlight-strong');
-  
-  if (allHighlighted.length > 0) {
-    // 현재 인덱스에 해당하는 하이라이트 찾기
-    const targetIndex = Math.min(currentIndex, allHighlighted.length - 1);
-    const target = allHighlighted[targetIndex];
-    
-    // 현재 검색 결과 강조
-    allHighlighted.forEach((el, idx) => {
-      el.classList.remove('highlight-current');
-      if (idx === targetIndex) {
-        el.classList.add('highlight-current');
-      }
-    });
-    
-    console.log(`📍 [검색] 하이라이트 위치로 스크롤 중... (${targetIndex + 1}/${allHighlighted.length})`);
-    target.scrollIntoView({ 
-      behavior: 'auto', // 검색용은 즉시 스크롤
+  // 찾은 위치로 스크롤 (하이라이트 스타일 없이)
+  if (targetSpan) {
+    targetSpan.scrollIntoView({ 
+      behavior: 'auto',
       block: 'center',
       inline: 'nearest'
     });
-    console.log('✅ [검색] 하이라이트 위치로 스크롤 완료');
+    console.log(`📍 [검색] 검색 결과 위치로 스크롤 완료 (하이라이트 스타일 없음)`);
   } else {
+    // 찾지 못한 경우 페이지 상단으로
     if (typeof window.viewerWrapper !== 'undefined' && window.viewerWrapper) {
       window.viewerWrapper.scrollTop = 0;
     }
-    console.log('📍 [검색] 하이라이트 없음, 페이지 상단으로 스크롤');
   }
 }
 
