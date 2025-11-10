@@ -111,21 +111,44 @@ function applyHighlightForSearch(textLayer, keywords, searchText) {
       }
       
       // 검색어가 여러 span에 걸쳐 있을 수 있으므로 인접한 span들을 결합하여 검색
+      // 하지만 검색어가 실제로 포함된 span만 하이라이트
       let combinedText = '';
-      let combinedSpans = [];
+      let queryStartIndex = -1; // 검색어가 시작되는 combinedText 내 인덱스
       
       for (let j = i; j < Math.min(i + 5, textSpans.length); j++) {
         const nextSpan = textSpans[j];
         const nextText = (nextSpan.textContent || '').trim();
         
         if (nextText) {
+          const beforeLength = combinedText.length;
           combinedText += nextText;
-          combinedSpans.push(nextSpan);
           
-          if (combinedText.toLowerCase().includes(query)) {
-            combinedSpans.forEach(s => {
-              s.classList.add('highlight-word');
-            });
+          // 검색어가 포함되는지 확인
+          const lowerCombined = combinedText.toLowerCase();
+          const queryIndex = lowerCombined.indexOf(query);
+          
+          if (queryIndex !== -1) {
+            // 검색어가 포함된 경우, 검색어가 시작되는 위치 찾기
+            queryStartIndex = queryIndex;
+            
+            // 검색어가 포함된 span들만 하이라이트
+            let charCount = 0;
+            for (let k = i; k <= j; k++) {
+              const spanText = (textSpans[k].textContent || '').trim();
+              if (spanText) {
+                const spanStart = charCount;
+                const spanEnd = charCount + spanText.length;
+                const queryStart = queryIndex;
+                const queryEnd = queryIndex + query.length;
+                
+                // span이 검색어와 겹치는지 확인
+                if (spanEnd > queryStart && spanStart < queryEnd) {
+                  textSpans[k].classList.add('highlight-word');
+                }
+                
+                charCount += spanText.length;
+              }
+            }
             break;
           }
         }
