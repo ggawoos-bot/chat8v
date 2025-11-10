@@ -59,9 +59,13 @@ function renderPageForSearch(num, canvas, ctx, textLayerDiv, options = {}) {
         console.warn('⚠️ [검색] 텍스트 레이어 렌더링 실패 (계속 진행):', error);
       }
       
-      // 텍스트 레이어 렌더링 완료 후 콜백 호출 (하이라이트 제거)
+      // 텍스트 레이어 렌더링 완료 후 하이라이트 적용
       setTimeout(() => {
-        // 검색 모드에서는 하이라이트를 적용하지 않음
+        // 검색어 하이라이트 적용
+        if (searchText && searchText.trim()) {
+          applyHighlightForSearch(textLayerDiv, [], searchText);
+        }
+        // 하이라이트된 위치로 스크롤
         scrollToHighlightForSearch(textLayerDiv, searchIndex);
         console.log(`✅ [검색] 페이지 ${num} 렌더링 완료`);
         

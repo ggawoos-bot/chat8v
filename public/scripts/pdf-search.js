@@ -163,10 +163,16 @@ async function performSearch(searchText) {
         window.queueRenderPage(result.page);
         // 페이지 렌더링 완료 후 하이라이트 (renderPage 함수 내에서 처리됨)
       } else {
-        // 같은 페이지면 스크롤만 업데이트 (하이라이트 제거)
+        // 같은 페이지면 하이라이트 적용 후 스크롤
         const textLayerDiv = document.querySelector('.textLayer');
         if (textLayerDiv) {
           setTimeout(() => {
+            // 검색어 하이라이트 적용
+            const searchText = window.searchViewer.searchText || '';
+            if (searchText && searchText.trim()) {
+              applyHighlightForSearch(textLayerDiv, [], searchText);
+            }
+            // 하이라이트된 위치로 스크롤
             scrollToHighlightForSearch(textLayerDiv, index);
           }, 300);
         }
