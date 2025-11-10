@@ -3,7 +3,7 @@
 
 /**
  * 검색용 하이라이트 적용 함수
- * 1. 2개 이상의 검색어가 포함된 문장을 하이라이트 (5개 라인 제한)
+ * 1. 2개 이상의 검색어가 같은 문장에 있으면 문장 하이라이트 (5개 라인 제한)
  * 2. 각 검색어를 개별적으로 하이라이트
  * @param {HTMLElement} textLayer - 텍스트 레이어 요소
  * @param {string[]} keywords - 하이라이트할 키워드 배열 (사용 안 함)
@@ -68,7 +68,7 @@ function applyHighlightForSearch(textLayer, keywords, searchText) {
     }
   });
   
-  // 2단계: 2개 이상의 검색어가 포함된 문장을 하이라이트 (5개 라인 제한)
+  // 2단계: 복수 검색어가 같은 문장에 있는지 확인하여 문장 하이라이트 (5개 라인 제한)
   // 단일 검색어일 때는 문장 하이라이트를 하지 않음
   // ✅ 단일 검색어일 때는 문장 하이라이트 클래스를 명시적으로 제거
   if (searchQueries.length < 2) {
@@ -81,7 +81,7 @@ function applyHighlightForSearch(textLayer, keywords, searchText) {
     // Y 좌표 기준으로 라인 그룹화
     const lines = groupSpansByLine(textSpans);
     
-    // 2개 이상의 검색어가 포함된 문장 찾기
+    // 문장들을 찾아서 각 검색어가 같은 문장에 있는지 확인
     let accumulatedText = '';
     let accumulatedSpans = [];
     let sentenceCount = 0;
@@ -109,17 +109,16 @@ function applyHighlightForSearch(textLayer, keywords, searchText) {
         }
         lastLineKey = currentLineKey;
         
-        // 문장 종료 조건 개선
+        // 문장 종료 조건
         const hasSentenceEnd = /[.!?]\s*$/.test(text.trim());
-        const hasMultipleNewLines = consecutiveNewLines >= 1; // 줄바꿈 1회 이상
-        const isTooLong = accumulatedText.length > 200; // 200자 제한 (500자에서 줄임)
-        const hasTooManySpans = accumulatedSpans.length > 15; // 15개 span 제한
+        const hasMultipleNewLines = consecutiveNewLines >= 1;
+        const isTooLong = accumulatedText.length > 200;
+        const hasTooManySpans = accumulatedSpans.length > 15;
         
-        // 문장 종료 조건: 종료 기호 OR 줄바꿈 OR 너무 길거나 많은 span
         const shouldEnd = hasSentenceEnd || hasMultipleNewLines || isTooLong || hasTooManySpans;
         
         if (shouldEnd) {
-          // 문장 내에 포함된 검색어 개수 확인 (2개 이상이어야 함)
+          // 이 문장에 포함된 검색어 확인
           const normalizedText = accumulatedText.toLowerCase();
           const foundQueries = searchQueries.filter(query => 
             normalizedText.includes(query)
@@ -131,12 +130,22 @@ function applyHighlightForSearch(textLayer, keywords, searchText) {
             const lineCount = getLineCount(accumulatedSpans, lines);
             
             if (lineCount <= 5) {
-              // 문장 하이라이트 적용
-              accumulatedSpans.forEach(s => {
-                s.classList.add('highlight-sentence');
-              });
-              sentenceCount++;
-              console.log(`✅ [검색] 문장 하이라이트 적용 (${foundQueries.length}개 검색어, ${lineCount}개 라인, ${accumulatedSpans.length}개 span)`);
+              // 모든 검색어가 이 문장에 포함되어 있는지 확인
+              const allQueriesInSentence = searchQueries.every(query => 
+                normalizedText.includes(query)
+              );
+              
+              if (allQueriesInSentence) {
+                // 모든 검색어가 같은 문장에 있으면 문장 하이라이트 적용
+                accumulatedSpans.forEach(s => {
+                  s.classList.add('highlight-sentence');
+                });
+                sentenceCount++;
+                console.log(`✅ [검색] 문장 하이라이트 적용 (모든 검색어가 같은 문장에 있음, ${lineCount}개 라인, ${accumulatedSpans.length}개 span)`);
+              } else {
+                // 일부 검색어만 있으면 문장 하이라이트 하지 않음 (단어만 하이라이트)
+                console.log(`ℹ️ [검색] 일부 검색어만 문장에 포함되어 있어 문장 하이라이트 하지 않음 (단어만 하이라이트)`);
+              }
             } else {
               console.log(`⚠️ [검색] 문장이 ${lineCount}개 라인으로 너무 깁니다. 하이라이트 제외`);
             }
@@ -158,14 +167,20 @@ function applyHighlightForSearch(textLayer, keywords, searchText) {
         normalizedText.includes(query)
       );
       
-      // 2개 이상의 검색어가 포함되어 있는지 확인
       if (foundQueries.length >= 2) {
         const lineCount = getLineCount(accumulatedSpans, lines);
         if (lineCount <= 5) {
-          accumulatedSpans.forEach(s => {
-            s.classList.add('highlight-sentence');
-          });
-          sentenceCount++;
+          // 모든 검색어가 이 문장에 포함되어 있는지 확인
+          const allQueriesInSentence = searchQueries.every(query => 
+            normalizedText.includes(query)
+          );
+          
+          if (allQueriesInSentence) {
+            accumulatedSpans.forEach(s => {
+              s.classList.add('highlight-sentence');
+            });
+            sentenceCount++;
+          }
         }
       }
     }
