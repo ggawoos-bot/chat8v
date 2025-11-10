@@ -161,7 +161,26 @@ function applyHighlightForSearch(textLayer, keywords, searchText) {
           const queryIndex = lowerCombined.indexOf(query);
           
           if (queryIndex !== -1) {
-            // 검색어가 포함된 경우, 검색어가 실제로 포함된 span들만 하이라이트
+            // ✅ 단어 경계 체크: 검색어가 단어 경계에서 일치하는지 확인
+            const beforeChar = queryIndex > 0 ? lowerCombined[queryIndex - 1] : '';
+            const afterChar = queryIndex + query.length < lowerCombined.length 
+              ? lowerCombined[queryIndex + query.length] 
+              : '';
+            
+            // 단어 경계 확인: 검색어 앞뒤가 단어 문자가 아니거나, 문자열의 시작/끝이어야 함
+            const isWordBoundaryBefore = queryIndex === 0 || /[^\w가-힣]/.test(beforeChar);
+            const isWordBoundaryAfter = queryIndex + query.length >= lowerCombined.length || /[^\w가-힣]/.test(afterChar);
+            
+            // ✅ 검색어가 단어 경계에서 일치하는 경우에만 하이라이트
+            if (!isWordBoundaryBefore || !isWordBoundaryAfter) {
+              // 단어 경계가 아니면 건너뛰기
+              if (queryHighlighted <= 3) {
+                console.log(`  ✗ [검색] 다중 span 하이라이트 건너뜀 (단어 경계 아님): "${combinedText.substring(0, 50)}"`);
+              }
+              continue; // 다음 span 조합 시도
+            }
+            
+            // 검색어가 단어 경계에서 일치하는 경우, 검색어가 실제로 포함된 span들만 하이라이트
             let charCount = 0;
             let spansToHighlight = [];
             
@@ -190,14 +209,14 @@ function applyHighlightForSearch(textLayer, keywords, searchText) {
                 totalHighlighted++;
                 
                 // ✅ 디버깅: 처음 몇 개만 로그 출력
-                if (queryHighlighted <= 3) {
+                if (queryHighlighted <= 5) {
                   const spanText = (textSpans[k].textContent || '').trim();
                   console.log(`  ✓ [검색] 다중 span 하이라이트: "${spanText.substring(0, 50)}"`);
                 }
               }
             });
             
-            break;
+            break; // 검색어를 찾았으므로 더 이상 조합하지 않음
           }
         }
       }
