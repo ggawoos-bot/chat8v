@@ -3,7 +3,7 @@
 
 /**
  * 검색용 하이라이트 적용 함수
- * 1. 모든 검색어가 포함된 문장을 하이라이트 (6개 라인 제한)
+ * 1. 2개 이상의 검색어가 포함된 문장을 하이라이트 (5개 라인 제한)
  * 2. 각 검색어를 개별적으로 하이라이트
  * @param {HTMLElement} textLayer - 텍스트 레이어 요소
  * @param {string[]} keywords - 하이라이트할 키워드 배열 (사용 안 함)
@@ -40,14 +40,32 @@ function applyHighlightForSearch(textLayer, keywords, searchText) {
   
   console.log(`🔍 [검색] 검색어: ${searchQueries.length > 1 ? '복수' : '단일'}`, searchQueries);
   
-  // 1단계: 각 검색어를 개별적으로 하이라이트
+  // 1단계: 각 검색어를 개별적으로 하이라이트 (개선된 매칭)
   searchQueries.forEach((query) => {
-    textSpans.forEach((span) => {
-      const text = (span.textContent || '').toLowerCase();
-      if (text.includes(query)) {
-        span.classList.add('highlight-word');
+    // 인접한 span들을 합쳐서 검색어 찾기
+    for (let i = 0; i < textSpans.length; i++) {
+      let combinedText = '';
+      let combinedSpans = [];
+      
+      // 최대 5개 span까지 합쳐서 검색 (단어가 분리되어 있을 수 있음)
+      for (let j = i; j < Math.min(i + 5, textSpans.length); j++) {
+        const span = textSpans[j];
+        const text = (span.textContent || '').trim();
+        if (text) {
+          combinedText += text;
+          combinedSpans.push(span);
+          
+          // 합친 텍스트에 검색어가 포함되어 있는지 확인
+          if (combinedText.toLowerCase().includes(query)) {
+            // 매칭된 span들 모두 하이라이트
+            combinedSpans.forEach(s => {
+              s.classList.add('highlight-word');
+            });
+            break; // 찾았으면 다음으로
+          }
+        }
       }
-    });
+    }
   });
   
   // 2단계: 2개 이상의 검색어가 포함된 문장을 하이라이트 (5개 라인 제한)
@@ -60,6 +78,8 @@ function applyHighlightForSearch(textLayer, keywords, searchText) {
     let accumulatedText = '';
     let accumulatedSpans = [];
     let sentenceCount = 0;
+    let lastLineKey = null;
+    let consecutiveNewLines = 0;
     
     for (let i = 0; i < textSpans.length; i++) {
       const span = textSpans[i];
@@ -69,12 +89,27 @@ function applyHighlightForSearch(textLayer, keywords, searchText) {
         accumulatedText += text + ' ';
         accumulatedSpans.push(span);
         
-        // 문장 종료 기호 확인 (., !, ?, 줄바꿈)
-        const isSentenceEnd = /[.!?]\s*$/.test(text.trim()) || 
-                              (i < textSpans.length - 1 && isNewLine(span, textSpans[i + 1]));
+        // 현재 span의 라인 확인
+        const style = window.getComputedStyle(span);
+        const top = parseFloat(style.top) || 0;
+        const currentLineKey = Math.round(top / 3) * 3;
         
-        // 문장이 너무 길어지면 강제 종료 (500자 제한)
-        const shouldEnd = isSentenceEnd || accumulatedText.length > 500;
+        // 줄바꿈 감지
+        if (lastLineKey !== null && Math.abs(currentLineKey - lastLineKey) > 5) {
+          consecutiveNewLines++;
+        } else {
+          consecutiveNewLines = 0;
+        }
+        lastLineKey = currentLineKey;
+        
+        // 문장 종료 조건 개선
+        const hasSentenceEnd = /[.!?]\s*$/.test(text.trim());
+        const hasMultipleNewLines = consecutiveNewLines >= 1; // 줄바꿈 1회 이상
+        const isTooLong = accumulatedText.length > 200; // 200자 제한 (500자에서 줄임)
+        const hasTooManySpans = accumulatedSpans.length > 15; // 15개 span 제한
+        
+        // 문장 종료 조건: 종료 기호 OR 줄바꿈 OR 너무 길거나 많은 span
+        const shouldEnd = hasSentenceEnd || hasMultipleNewLines || isTooLong || hasTooManySpans;
         
         if (shouldEnd) {
           // 문장 내에 포함된 검색어 개수 확인 (2개 이상이어야 함)
@@ -103,6 +138,8 @@ function applyHighlightForSearch(textLayer, keywords, searchText) {
           // 다음 문장을 위해 초기화
           accumulatedText = '';
           accumulatedSpans = [];
+          consecutiveNewLines = 0;
+          lastLineKey = null;
         }
       }
     }
