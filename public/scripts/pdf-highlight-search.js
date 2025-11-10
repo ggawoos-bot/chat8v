@@ -70,7 +70,14 @@ function applyHighlightForSearch(textLayer, keywords, searchText) {
   
   // 2단계: 2개 이상의 검색어가 포함된 문장을 하이라이트 (5개 라인 제한)
   // 단일 검색어일 때는 문장 하이라이트를 하지 않음
-  if (searchQueries.length >= 2) {
+  // ✅ 단일 검색어일 때는 문장 하이라이트 클래스를 명시적으로 제거
+  if (searchQueries.length < 2) {
+    // 단일 검색어일 때는 문장 하이라이트를 완전히 제거
+    textLayer.querySelectorAll('.highlight-sentence').forEach(el => {
+      el.classList.remove('highlight-sentence');
+    });
+    console.log('ℹ️ [검색] 단일 검색어이므로 문장 하이라이트를 하지 않습니다.');
+  } else if (searchQueries.length >= 2) {
     // Y 좌표 기준으로 라인 그룹화
     const lines = groupSpansByLine(textSpans);
     
@@ -164,8 +171,6 @@ function applyHighlightForSearch(textLayer, keywords, searchText) {
     }
     
     console.log(`✅ [검색] 총 ${sentenceCount}개 문장 하이라이트 적용 완료`);
-  } else {
-    console.log('ℹ️ [검색] 단일 검색어이므로 문장 하이라이트를 하지 않습니다.');
   }
   
   console.log('✅ [검색] 하이라이트 적용 완료');
