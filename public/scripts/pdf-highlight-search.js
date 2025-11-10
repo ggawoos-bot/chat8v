@@ -133,103 +133,19 @@ function applyHighlightForSearch(textLayer, keywords, searchText) {
     }
   });
   
-  // 2단계: 2단어 이상이 같은 문장에 있으면 문장 전체 하이라이트
-  if (searchQueries.length >= 2) {
-    let accumulatedText = '';
-    let accumulatedSpans = [];
-    let lastLineKey = null;
-    let consecutiveNewLines = 0;
-    
-    for (let i = 0; i < textSpans.length; i++) {
-      const span = textSpans[i];
-      const text = span.textContent || '';
-      
-      if (text.trim()) {
-        accumulatedText += text + ' ';
-        accumulatedSpans.push(span);
-        
-        // 현재 span의 라인 키 계산
-        const style = window.getComputedStyle(span);
-        const top = parseFloat(style.top) || 0;
-        const currentLineKey = Math.round(top / 3) * 3;
-        
-        // 새로운 라인인지 확인
-        if (lastLineKey !== null && Math.abs(currentLineKey - lastLineKey) > 5) {
-          consecutiveNewLines++;
-        } else {
-          consecutiveNewLines = 0;
-        }
-        lastLineKey = currentLineKey;
-        
-        // 문장 종료 조건 확인
-        const hasSentenceEnd = /[.!?]\s*$/.test(text.trim());
-        const hasMultipleNewLines = consecutiveNewLines >= 1;
-        const isTooLong = accumulatedText.length > 200;
-        const hasTooManySpans = accumulatedSpans.length > 15;
-        const shouldEnd = hasSentenceEnd || hasMultipleNewLines || isTooLong || hasTooManySpans;
-        
-        if (shouldEnd) {
-          const normalizedText = accumulatedText.toLowerCase();
-          
-          // 문장에 포함된 검색어 개수 확인
-          const foundQueries = searchQueries.filter(query => normalizedText.includes(query));
-          
-          // 2단어 이상이 포함되어 있고, 5개 라인 이하인 경우
-          if (foundQueries.length >= 2 && accumulatedSpans.length > 0) {
-            const lineCount = getLineCount(accumulatedSpans, lines);
-            
-            if (lineCount <= 5) {
-              // 모든 검색어가 문장에 포함되어 있는지 확인
-              const allQueriesInSentence = searchQueries.every(query => normalizedText.includes(query));
-              
-              if (allQueriesInSentence) {
-                accumulatedSpans.forEach(s => {
-                  s.classList.add('highlight-sentence');
-                });
-                console.log(`✅ [검색] 문장 하이라이트 적용 (${foundQueries.length}개 검색어, ${lineCount}개 라인, ${accumulatedSpans.length}개 span)`);
-              }
-            } else {
-              console.log(`⚠️ [검색] 문장이 ${lineCount}개 라인으로 너무 깁니다. 하이라이트 제외`);
-            }
-          }
-          
-          // 문장 초기화
-          accumulatedText = '';
-          accumulatedSpans = [];
-          consecutiveNewLines = 0;
-          lastLineKey = null;
-        }
-      }
-    }
-    
-    // 마지막 누적된 텍스트 처리
-    if (accumulatedText.trim() && accumulatedSpans.length > 0) {
-      const normalizedText = accumulatedText.toLowerCase();
-      const foundQueries = searchQueries.filter(query => normalizedText.includes(query));
-      
-      if (foundQueries.length >= 2) {
-        const lineCount = getLineCount(accumulatedSpans, lines);
-        
-        if (lineCount <= 5) {
-          const allQueriesInSentence = searchQueries.every(query => normalizedText.includes(query));
-          
-          if (allQueriesInSentence) {
-            accumulatedSpans.forEach(s => {
-              s.classList.add('highlight-sentence');
-            });
-            console.log(`✅ [검색] 마지막 문장 하이라이트 적용 (${foundQueries.length}개 검색어, ${lineCount}개 라인)`);
-          }
-        }
-      }
-    }
-  }
+  // 2단계: 문장 하이라이트 제거 (단일/복수 검색어 모두)
+  // 기존 문장 하이라이트 제거
+  textLayer.querySelectorAll('.highlight-sentence').forEach(el => {
+    el.classList.remove('highlight-sentence');
+  });
+  console.log('ℹ️ [검색] 문장 하이라이트를 적용하지 않습니다. 검색어만 하이라이트합니다.');
   
   console.log('✅ [검색] 하이라이트 적용 완료');
 }
 
 /**
  * 검색용 하이라이트된 요소로 스크롤
- * 문장 하이라이트 우선, 없으면 검색어 하이라이트로 스크롤
+ * 검색어 하이라이트로 스크롤
  * @param {HTMLElement} textLayer - 텍스트 레이어 요소
  * @param {number} currentIndex - 현재 검색 결과 인덱스
  */
@@ -241,20 +157,7 @@ function scrollToHighlightForSearch(textLayer, currentIndex = 0) {
     return;
   }
   
-  // 문장 하이라이트 우선 찾기
-  const sentenceHighlight = textLayer.querySelector('.highlight-sentence');
-  if (sentenceHighlight) {
-    console.log('📍 [검색] 문장 하이라이트 위치로 스크롤 중...');
-    sentenceHighlight.scrollIntoView({
-      behavior: 'auto',
-      block: 'center',
-      inline: 'nearest'
-    });
-    console.log('✅ [검색] 문장 하이라이트 위치로 스크롤 완료');
-    return;
-  }
-  
-  // 문장 하이라이트가 없으면 검색어 하이라이트로 스크롤
+  // 검색어 하이라이트로 스크롤
   const wordHighlight = textLayer.querySelector('.highlight-word');
   if (wordHighlight) {
     console.log('📍 [검색] 검색어 하이라이트 위치로 스크롤 중...');

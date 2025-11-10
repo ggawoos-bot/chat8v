@@ -448,6 +448,9 @@
         
         if (!searchText) return;
         
+        // ✅ 검색 모드로 명시적 전환 (안전장치)
+        window.viewerMode = 'search';
+        
         // 같은 검색어이고 검색 결과가 있으면 다음 결과로 이동
         if (lastSearchText === searchText && 
             window.searchViewer.searchResults && window.searchViewer.searchResults.length > 0 && 
@@ -471,6 +474,9 @@
     searchButton.addEventListener('click', () => {
       const searchText = searchInput.value.trim();
       if (!searchText) return;
+      
+      // ✅ 검색 모드로 명시적 전환 (안전장치)
+      window.viewerMode = 'search';
       
       // 같은 검색어이고 검색 결과가 있으면 다음 결과로 이동
       if (lastSearchText === searchText && 

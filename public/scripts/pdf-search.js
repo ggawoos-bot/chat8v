@@ -14,6 +14,15 @@ async function performSearch(searchText) {
   // ✅ 검색 모드로 전환
   window.viewerMode = 'search';
   
+  // ✅ 이전 검색의 하이라이트 제거 (문장 하이라이트 포함)
+  const textLayerDiv = document.querySelector('.textLayer');
+  if (textLayerDiv) {
+    textLayerDiv.querySelectorAll('.highlight, .highlight-strong, .highlight-current, .highlight-sentence, .highlight-word').forEach(el => {
+      el.classList.remove('highlight', 'highlight-strong', 'highlight-current', 'highlight-sentence', 'highlight-word');
+    });
+    console.log('🧹 [검색] 이전 검색의 하이라이트 제거 완료');
+  }
+  
   // ✅ 공백으로 구분된 검색어 파싱 (AND 조건)
   const searchQueries = searchText
     .split(/\s+/) // 공백(연속 공백 포함)으로 분할
