@@ -285,12 +285,12 @@
               searchRendering = false;
               window.searchViewer.rendering = false;
               console.log(`✅ [검색] 페이지 ${pageNum} 렌더링 완전히 완료`);
-              
-              // ✅ 초기 페이지 렌더링 완료 시 검색 입력 필드에 포커스
+          
+          // ✅ 초기 페이지 렌더링 완료 시 검색 입력 필드에 포커스
               if (pageNum === currentPage && pageNum === initialPage) {
-                setTimeout(focusSearchInput, 100);
-              }
-              
+            setTimeout(focusSearchInput, 100);
+          }
+          
               // 대기 중인 페이지 처리
               if (searchPending !== null) {
                 const pending = searchPending;
@@ -319,24 +319,24 @@
               referenceRendering = false;
               window.referenceViewer.rendering = false;
               console.log(`✅ [참조] 페이지 ${pageNum} 렌더링 완전히 완료`);
-              
-              // ✅ 초기 페이지 렌더링 완료 시 검색 입력 필드에 포커스
+          
+          // ✅ 초기 페이지 렌더링 완료 시 검색 입력 필드에 포커스
               if (pageNum === currentPage && pageNum === initialPage) {
-                setTimeout(focusSearchInput, 100);
-              }
-              
+            setTimeout(focusSearchInput, 100);
+          }
+          
               // 대기 중인 페이지 처리
               if (referencePending !== null) {
                 const pending = referencePending;
                 referencePending = null;
                 window.referenceViewer.pending = null;
                 console.log(`📄 [참조] 대기 중인 페이지 ${pending} 렌더링 시작`);
-                renderPage(pending);
-              }
+            renderPage(pending);
+          }
             }
           }
         );
-      }
+          }
       
       // ✅ 페이지 입력 필드 즉시 업데이트
       pageInput.value = num;
@@ -358,11 +358,11 @@
         if (isSearchMode) {
           searchPending = num;
           window.searchViewer.pending = num;
-        } else {
+                    } else {
           referencePending = num;
           window.referenceViewer.pending = num;
         }
-      } else {
+            } else {
         console.log(`▶️ [${currentMode}] 즉시 페이지 ${num} 렌더링 시작`);
         renderPage(num);
       }
