@@ -97,7 +97,13 @@ function applyHighlightForSearch(textLayer, keywords, searchText) {
   const lines = groupSpansByLine(textSpans);
   
   // 1단계: 모든 검색어를 개별적으로 하이라이트
-  searchQueries.forEach((query) => {
+  console.log(`🔍 [검색] 하이라이트 시작: 검색어 ${searchQueries.length}개`, searchQueries);
+  let totalHighlighted = 0;
+  
+  searchQueries.forEach((query, queryIdx) => {
+    console.log(`🔍 [검색] 검색어 ${queryIdx + 1}/${searchQueries.length} 처리 중: "${query}"`);
+    let queryHighlighted = 0;
+    
     for (let i = 0; i < textSpans.length; i++) {
       const span = textSpans[i];
       const text = (span.textContent || '').trim();
@@ -105,22 +111,49 @@ function applyHighlightForSearch(textLayer, keywords, searchText) {
       if (!text) continue;
       
       // 단일 span에서 검색어 찾기
-      if (text.toLowerCase().includes(query)) {
-        span.classList.add('highlight-word');
+      const textLower = text.toLowerCase();
+      const queryIndex = textLower.indexOf(query);
+      
+      if (queryIndex !== -1) {
+        // ✅ 개선: 검색어가 정확히 일치하거나, 단어 경계에서 일치하는 경우만 하이라이트
+        // 예: "어린이집"을 검색할 때:
+        // - "어린이집" (정확 일치) → 하이라이트 ✓
+        // - "어린이집·학교" (시작 일치) → 하이라이트 ✓
+        // - "유치원·어린이집" (끝 일치) → 하이라이트 ✓
+        // - "유치원·어린이집·학교" (중간 포함) → 하이라이트 ✗ (너무 넓음)
+        
+        const isExactMatch = textLower === query;
+        const isStartMatch = textLower.startsWith(query) && (textLower.length === query.length || /[^\w가-힣]/.test(textLower[query.length]));
+        const isEndMatch = textLower.endsWith(query) && (textLower.length === query.length || /[^\w가-힣]/.test(textLower[textLower.length - query.length - 1]));
+        
+        // ✅ 정확히 일치하거나, 시작/끝에서 단어 경계로 일치하는 경우만 하이라이트
+        if (isExactMatch || isStartMatch || isEndMatch) {
+          span.classList.add('highlight-word');
+          queryHighlighted++;
+          totalHighlighted++;
+          
+          // ✅ 디버깅: 처음 몇 개만 로그 출력
+          if (queryHighlighted <= 5) {
+            console.log(`  ✓ [검색] span 하이라이트: "${text.substring(0, 50)}" (정확: ${isExactMatch}, 시작: ${isStartMatch}, 끝: ${isEndMatch})`);
+          }
+        } else {
+          // ✅ 중간에 포함된 경우는 로그만 출력 (하이라이트하지 않음)
+          if (queryHighlighted <= 5) {
+            console.log(`  ✗ [검색] span 하이라이트 건너뜀 (중간 포함): "${text.substring(0, 50)}"`);
+          }
+        }
         continue;
       }
       
       // 검색어가 여러 span에 걸쳐 있을 수 있으므로 인접한 span들을 결합하여 검색
       // 하지만 검색어가 실제로 포함된 span만 하이라이트
       let combinedText = '';
-      let queryStartIndex = -1; // 검색어가 시작되는 combinedText 내 인덱스
       
-      for (let j = i; j < Math.min(i + 5, textSpans.length); j++) {
+      for (let j = i; j < Math.min(i + 10, textSpans.length); j++) {
         const nextSpan = textSpans[j];
         const nextText = (nextSpan.textContent || '').trim();
         
         if (nextText) {
-          const beforeLength = combinedText.length;
           combinedText += nextText;
           
           // 검색어가 포함되는지 확인
@@ -128,11 +161,10 @@ function applyHighlightForSearch(textLayer, keywords, searchText) {
           const queryIndex = lowerCombined.indexOf(query);
           
           if (queryIndex !== -1) {
-            // 검색어가 포함된 경우, 검색어가 시작되는 위치 찾기
-            queryStartIndex = queryIndex;
-            
-            // 검색어가 포함된 span들만 하이라이트
+            // 검색어가 포함된 경우, 검색어가 실제로 포함된 span들만 하이라이트
             let charCount = 0;
+            let spansToHighlight = [];
+            
             for (let k = i; k <= j; k++) {
               const spanText = (textSpans[k].textContent || '').trim();
               if (spanText) {
@@ -143,18 +175,38 @@ function applyHighlightForSearch(textLayer, keywords, searchText) {
                 
                 // span이 검색어와 겹치는지 확인
                 if (spanEnd > queryStart && spanStart < queryEnd) {
-                  textSpans[k].classList.add('highlight-word');
+                  spansToHighlight.push(k);
                 }
                 
                 charCount += spanText.length;
               }
             }
+            
+            // ✅ 검색어가 포함된 span들만 하이라이트
+            spansToHighlight.forEach(k => {
+              if (!textSpans[k].classList.contains('highlight-word')) {
+                textSpans[k].classList.add('highlight-word');
+                queryHighlighted++;
+                totalHighlighted++;
+                
+                // ✅ 디버깅: 처음 몇 개만 로그 출력
+                if (queryHighlighted <= 3) {
+                  const spanText = (textSpans[k].textContent || '').trim();
+                  console.log(`  ✓ [검색] 다중 span 하이라이트: "${spanText.substring(0, 50)}"`);
+                }
+              }
+            });
+            
             break;
           }
         }
       }
     }
+    
+    console.log(`✅ [검색] 검색어 "${query}" 처리 완료: ${queryHighlighted}개 span 하이라이트`);
   });
+  
+  console.log(`✅ [검색] 전체 하이라이트 완료: 총 ${totalHighlighted}개 span`);
   
   // 2단계: 문장 하이라이트 제거 (단일/복수 검색어 모두)
   // 기존 문장 하이라이트 제거
