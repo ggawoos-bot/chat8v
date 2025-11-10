@@ -216,8 +216,10 @@
       // }
       
       // ✅ 큐에 쌓인 메시지 처리 (PDF 로드 전에 받은 메시지들)
+      // 초기 로드 시에는 참조 모드로 시작하므로 큐 메시지 처리
       if (queuedMessages.length > 0) {
         console.log(`📥 [참조] 큐에 쌓인 ${queuedMessages.length}개 메시지 처리 시작`);
+        // 초기 로드 시에는 아직 검색 모드가 아니므로 안전하게 처리
         queuedMessages.forEach((msg) => {
           processChangePageMessage(msg);
         });
@@ -561,6 +563,13 @@
     function processChangePageMessage(data) {
       console.log('🔧 [참조] processChangePageMessage 시작:', data);
       
+      // ✅ 검색 모드일 때는 참조 모드 메시지 무시
+      const currentMode = window.viewerMode || 'reference';
+      if (currentMode === 'search') {
+        console.log('ℹ️ [검색] 검색 모드 중이므로 참조 모드 메시지를 무시합니다.');
+        return;
+      }
+      
       // 참조 모드로 전환
       window.viewerMode = 'reference';
       
@@ -626,6 +635,13 @@
       const data = event.data;
       if (data && data.type === 'changePage') {
         console.log('📥 페이지 변경 메시지 수신:', data);
+        
+        // ✅ 검색 모드일 때는 참조 모드 메시지 무시
+        const currentMode = window.viewerMode || 'reference';
+        if (currentMode === 'search') {
+          console.log('ℹ️ [검색] 검색 모드 중이므로 참조 모드 메시지를 무시합니다.');
+          return;
+        }
         
         // PDF가 로드되지 않았으면 큐에 저장
         if (!pdfDoc || numPages === 0) {
