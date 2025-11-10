@@ -163,11 +163,10 @@ async function performSearch(searchText) {
         window.queueRenderPage(result.page);
         // 페이지 렌더링 완료 후 하이라이트 (renderPage 함수 내에서 처리됨)
       } else {
-        // 같은 페이지면 하이라이트만 업데이트 (검색용 함수 사용)
+        // 같은 페이지면 스크롤만 업데이트 (하이라이트 제거)
         const textLayerDiv = document.querySelector('.textLayer');
         if (textLayerDiv) {
           setTimeout(() => {
-            applyHighlightForSearch(textLayerDiv, [], window.searchViewer.searchText);
             scrollToHighlightForSearch(textLayerDiv, index);
           }, 300);
         }
