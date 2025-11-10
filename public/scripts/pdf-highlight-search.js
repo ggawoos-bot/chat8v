@@ -3,7 +3,7 @@
 
 /**
  * 검색용 하이라이트 적용 함수
- * 1. 모든 검색어가 포함된 문장을 하이라이트 (6개 라인 제한)
+ * 1. 2개 이상의 검색어가 포함된 문장을 하이라이트 (5개 라인 제한)
  * 2. 각 검색어를 개별적으로 하이라이트
  * @param {HTMLElement} textLayer - 텍스트 레이어 요소
  * @param {string[]} keywords - 하이라이트할 키워드 배열 (사용 안 함)
@@ -50,12 +50,13 @@ function applyHighlightForSearch(textLayer, keywords, searchText) {
     });
   });
   
-  // 2단계: 모든 검색어가 포함된 문장을 하이라이트 (6개 라인 제한)
-  if (searchQueries.length > 1) {
+  // 2단계: 2개 이상의 검색어가 포함된 문장을 하이라이트 (5개 라인 제한)
+  // 단일 검색어일 때는 문장 하이라이트를 하지 않음
+  if (searchQueries.length >= 2) {
     // Y 좌표 기준으로 라인 그룹화
     const lines = groupSpansByLine(textSpans);
     
-    // 모든 검색어가 포함된 문장 찾기
+    // 2개 이상의 검색어가 포함된 문장 찾기
     let accumulatedText = '';
     let accumulatedSpans = [];
     let sentenceCount = 0;
@@ -76,23 +77,24 @@ function applyHighlightForSearch(textLayer, keywords, searchText) {
         const shouldEnd = isSentenceEnd || accumulatedText.length > 500;
         
         if (shouldEnd) {
-          // 모든 검색어가 포함되어 있는지 확인
+          // 문장 내에 포함된 검색어 개수 확인 (2개 이상이어야 함)
           const normalizedText = accumulatedText.toLowerCase();
-          const allFound = searchQueries.every(query => 
+          const foundQueries = searchQueries.filter(query => 
             normalizedText.includes(query)
           );
           
-          if (allFound && accumulatedSpans.length > 0) {
-            // 라인 수 확인 (6개 라인 제한)
+          // 2개 이상의 검색어가 포함되어 있는지 확인
+          if (foundQueries.length >= 2 && accumulatedSpans.length > 0) {
+            // 라인 수 확인 (5개 라인 제한)
             const lineCount = getLineCount(accumulatedSpans, lines);
             
-            if (lineCount <= 6) {
+            if (lineCount <= 5) {
               // 문장 하이라이트 적용
               accumulatedSpans.forEach(s => {
                 s.classList.add('highlight-sentence');
               });
               sentenceCount++;
-              console.log(`✅ [검색] 문장 하이라이트 적용 (${lineCount}개 라인, ${accumulatedSpans.length}개 span)`);
+              console.log(`✅ [검색] 문장 하이라이트 적용 (${foundQueries.length}개 검색어, ${lineCount}개 라인, ${accumulatedSpans.length}개 span)`);
             } else {
               console.log(`⚠️ [검색] 문장이 ${lineCount}개 라인으로 너무 깁니다. 하이라이트 제외`);
             }
@@ -108,13 +110,14 @@ function applyHighlightForSearch(textLayer, keywords, searchText) {
     // 마지막 남은 텍스트 처리
     if (accumulatedText.length > 0 && accumulatedSpans.length > 0) {
       const normalizedText = accumulatedText.toLowerCase();
-      const allFound = searchQueries.every(query => 
+      const foundQueries = searchQueries.filter(query => 
         normalizedText.includes(query)
       );
       
-      if (allFound) {
+      // 2개 이상의 검색어가 포함되어 있는지 확인
+      if (foundQueries.length >= 2) {
         const lineCount = getLineCount(accumulatedSpans, lines);
-        if (lineCount <= 6) {
+        if (lineCount <= 5) {
           accumulatedSpans.forEach(s => {
             s.classList.add('highlight-sentence');
           });
@@ -124,6 +127,8 @@ function applyHighlightForSearch(textLayer, keywords, searchText) {
     }
     
     console.log(`✅ [검색] 총 ${sentenceCount}개 문장 하이라이트 적용 완료`);
+  } else {
+    console.log('ℹ️ [검색] 단일 검색어이므로 문장 하이라이트를 하지 않습니다.');
   }
   
   console.log('✅ [검색] 하이라이트 적용 완료');
