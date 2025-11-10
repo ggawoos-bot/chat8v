@@ -3,8 +3,8 @@
 
 /**
  * 검색용 하이라이트 적용 함수
- * 사용자가 입력한 검색어를 사용 (복수 검색어 지원)
- * 검색 모드에서는 하이라이트 스타일을 적용하지 않음
+ * 1. 모든 검색어가 포함된 문장을 하이라이트 (6개 라인 제한)
+ * 2. 각 검색어를 개별적으로 하이라이트
  * @param {HTMLElement} textLayer - 텍스트 레이어 요소
  * @param {string[]} keywords - 하이라이트할 키워드 배열 (사용 안 함)
  * @param {string} searchText - 검색 텍스트
@@ -16,24 +16,177 @@ function applyHighlightForSearch(textLayer, keywords, searchText) {
   }
   
   // ✅ 기존 하이라이트 제거
-  textLayer.querySelectorAll('.highlight, .highlight-strong, .highlight-current').forEach(el => {
-    el.classList.remove('highlight', 'highlight-strong', 'highlight-current');
+  textLayer.querySelectorAll('.highlight, .highlight-strong, .highlight-current, .highlight-sentence, .highlight-word').forEach(el => {
+    el.classList.remove('highlight', 'highlight-strong', 'highlight-current', 'highlight-sentence', 'highlight-word');
   });
   
-  // 검색 모드에서는 하이라이트 스타일을 적용하지 않음
-  // 검색 결과 찾기 기능은 pdf-search.js에서 처리
-  console.log('✅ [검색] 하이라이트 스타일 제거 완료 (검색 모드에서는 시각적 하이라이트 없음)');
+  const textSpans = Array.from(textLayer.querySelectorAll('span'));
+  if (textSpans.length === 0) {
+    console.log('⚠️ [검색] 텍스트 레이어에 span이 없습니다.');
+    return;
+  }
+  
+  // 검색어 파싱
+  const searchQueries = searchText
+    .trim()
+    .split(/\s+/)
+    .map(q => q.trim())
+    .filter(q => q.length > 0)
+    .map(q => q.toLowerCase());
+  
+  if (searchQueries.length === 0) {
+    return;
+  }
+  
+  console.log(`🔍 [검색] 검색어: ${searchQueries.length > 1 ? '복수' : '단일'}`, searchQueries);
+  
+  // 1단계: 각 검색어를 개별적으로 하이라이트
+  searchQueries.forEach((query) => {
+    textSpans.forEach((span) => {
+      const text = (span.textContent || '').toLowerCase();
+      if (text.includes(query)) {
+        span.classList.add('highlight-word');
+      }
+    });
+  });
+  
+  // 2단계: 모든 검색어가 포함된 문장을 하이라이트 (6개 라인 제한)
+  if (searchQueries.length > 1) {
+    // Y 좌표 기준으로 라인 그룹화
+    const lines = groupSpansByLine(textSpans);
+    
+    // 모든 검색어가 포함된 문장 찾기
+    let accumulatedText = '';
+    let accumulatedSpans = [];
+    let sentenceCount = 0;
+    
+    for (let i = 0; i < textSpans.length; i++) {
+      const span = textSpans[i];
+      const text = span.textContent || '';
+      
+      if (text.trim()) {
+        accumulatedText += text + ' ';
+        accumulatedSpans.push(span);
+        
+        // 문장 종료 기호 확인 (., !, ?, 줄바꿈)
+        const isSentenceEnd = /[.!?]\s*$/.test(text.trim()) || 
+                              (i < textSpans.length - 1 && isNewLine(span, textSpans[i + 1]));
+        
+        // 문장이 너무 길어지면 강제 종료 (500자 제한)
+        const shouldEnd = isSentenceEnd || accumulatedText.length > 500;
+        
+        if (shouldEnd) {
+          // 모든 검색어가 포함되어 있는지 확인
+          const normalizedText = accumulatedText.toLowerCase();
+          const allFound = searchQueries.every(query => 
+            normalizedText.includes(query)
+          );
+          
+          if (allFound && accumulatedSpans.length > 0) {
+            // 라인 수 확인 (6개 라인 제한)
+            const lineCount = getLineCount(accumulatedSpans, lines);
+            
+            if (lineCount <= 6) {
+              // 문장 하이라이트 적용
+              accumulatedSpans.forEach(s => {
+                s.classList.add('highlight-sentence');
+              });
+              sentenceCount++;
+              console.log(`✅ [검색] 문장 하이라이트 적용 (${lineCount}개 라인, ${accumulatedSpans.length}개 span)`);
+            } else {
+              console.log(`⚠️ [검색] 문장이 ${lineCount}개 라인으로 너무 깁니다. 하이라이트 제외`);
+            }
+          }
+          
+          // 다음 문장을 위해 초기화
+          accumulatedText = '';
+          accumulatedSpans = [];
+        }
+      }
+    }
+    
+    // 마지막 남은 텍스트 처리
+    if (accumulatedText.length > 0 && accumulatedSpans.length > 0) {
+      const normalizedText = accumulatedText.toLowerCase();
+      const allFound = searchQueries.every(query => 
+        normalizedText.includes(query)
+      );
+      
+      if (allFound) {
+        const lineCount = getLineCount(accumulatedSpans, lines);
+        if (lineCount <= 6) {
+          accumulatedSpans.forEach(s => {
+            s.classList.add('highlight-sentence');
+          });
+          sentenceCount++;
+        }
+      }
+    }
+    
+    console.log(`✅ [검색] 총 ${sentenceCount}개 문장 하이라이트 적용 완료`);
+  }
+  
+  console.log('✅ [검색] 하이라이트 적용 완료');
+}
+
+/**
+ * span들을 Y 좌표 기준으로 라인 그룹화
+ */
+function groupSpansByLine(spans) {
+  const lines = new Map();
+  
+  spans.forEach((span, index) => {
+    const style = window.getComputedStyle(span);
+    const top = parseFloat(style.top) || 0;
+    // 3px 단위로 그룹화 (더 정확한 라인 구분)
+    const lineKey = Math.round(top / 3) * 3;
+    
+    if (!lines.has(lineKey)) {
+      lines.set(lineKey, []);
+    }
+    lines.get(lineKey).push({ span, index, top });
+  });
+  
+  return lines;
+}
+
+/**
+ * span들의 라인 수 계산
+ */
+function getLineCount(spans, lines) {
+  const lineKeys = new Set();
+  
+  spans.forEach(span => {
+    const style = window.getComputedStyle(span);
+    const top = parseFloat(style.top) || 0;
+    const lineKey = Math.round(top / 3) * 3;
+    lineKeys.add(lineKey);
+  });
+  
+  return lineKeys.size;
+}
+
+/**
+ * 두 span이 다른 라인에 있는지 확인
+ */
+function isNewLine(span1, span2) {
+  if (!span2) return false;
+  
+  const style1 = window.getComputedStyle(span1);
+  const style2 = window.getComputedStyle(span2);
+  const top1 = parseFloat(style1.top) || 0;
+  const top2 = parseFloat(style2.top) || 0;
+  
+  // 5px 이상 차이나면 다른 라인으로 간주
+  return Math.abs(top2 - top1) > 5;
 }
 
 /**
  * 검색용 하이라이트된 요소로 스크롤
- * 검색 모드에서는 하이라이트 스타일을 적용하지 않고 스크롤만 수행
  * @param {HTMLElement} textLayer - 텍스트 레이어 요소
  * @param {number} currentIndex - 현재 검색 결과 인덱스
  */
 function scrollToHighlightForSearch(textLayer, currentIndex = 0) {
-  // 검색 모드에서는 하이라이트 스타일을 적용하지 않음
-  // 검색 결과 위치로 스크롤만 수행 (하이라이트 없이)
   if (!textLayer || !window.searchViewer || !window.searchViewer.searchText) {
     return;
   }
@@ -43,79 +196,43 @@ function scrollToHighlightForSearch(textLayer, currentIndex = 0) {
     return;
   }
   
-  // 검색어를 찾아서 해당 위치로 스크롤 (하이라이트 스타일 없이)
+  // 문장 하이라이트가 있으면 첫 번째 문장으로 스크롤
+  const sentenceSpans = textLayer.querySelectorAll('.highlight-sentence');
+  if (sentenceSpans.length > 0) {
+    // 문장의 첫 번째 span 찾기
+    const firstSentenceSpan = sentenceSpans[0];
+    firstSentenceSpan.scrollIntoView({ 
+      behavior: 'auto',
+      block: 'center',
+      inline: 'nearest'
+    });
+    console.log(`📍 [검색] 문장 위치로 스크롤 완료`);
+    return;
+  }
+  
+  // 문장 하이라이트가 없으면 개별 단어로 스크롤
   const searchQueries = searchText
     .split(/\s+/)
     .map(q => q.trim())
     .filter(q => q.length > 0)
     .map(q => q.toLowerCase());
   
-  const textSpans = textLayer.querySelectorAll('span');
-  let foundCount = 0;
-  let targetSpan = null;
-  
-  if (searchQueries.length > 1) {
-    // 복수 검색어: 모든 검색어가 포함된 첫 번째 위치 찾기
-    let accumulatedText = '';
-    let accumulatedSpans = [];
-    
-    for (const span of textSpans) {
-      const text = span.textContent || '';
-      if (text.trim()) {
-        accumulatedText += text;
-        accumulatedSpans.push(span);
-        
-        const normalizedAccumulated = accumulatedText.toLowerCase();
-        const allFound = searchQueries.every(query => 
-          normalizedAccumulated.includes(query)
-        );
-        
-        if (allFound && foundCount === currentIndex) {
-          targetSpan = accumulatedSpans[0];
-          break;
-        }
-        
-        if (allFound) {
-          foundCount++;
-          accumulatedText = '';
-          accumulatedSpans = [];
-        }
-        
-        if (accumulatedText.length > searchText.length * 3) {
-          accumulatedText = '';
-          accumulatedSpans = [];
-        }
-      }
-    }
-  } else {
-    // 단일 검색어: 해당 인덱스의 위치 찾기
-    const query = searchQueries[0];
-    const normalizedQuery = query.toLowerCase();
-    
-    for (const span of textSpans) {
+  const wordSpans = Array.from(textLayer.querySelectorAll('.highlight-word'));
+  if (wordSpans.length > 0) {
+    // 첫 번째 검색어의 첫 번째 매칭 위치로 스크롤
+    const firstQuery = searchQueries[0];
+    const targetSpan = wordSpans.find(span => {
       const text = (span.textContent || '').toLowerCase();
-      if (text.includes(normalizedQuery)) {
-        if (foundCount === currentIndex) {
-          targetSpan = span;
-          break;
-        }
-        foundCount++;
-      }
-    }
-  }
-  
-  // 찾은 위치로 스크롤 (하이라이트 스타일 없이)
-  if (targetSpan) {
-    targetSpan.scrollIntoView({ 
-      behavior: 'auto',
-      block: 'center',
-      inline: 'nearest'
+      return text.includes(firstQuery);
     });
-    console.log(`📍 [검색] 검색 결과 위치로 스크롤 완료 (하이라이트 스타일 없음)`);
-  } else {
-    // 찾지 못한 경우 페이지 상단으로
-    if (typeof window.viewerWrapper !== 'undefined' && window.viewerWrapper) {
-      window.viewerWrapper.scrollTop = 0;
+    
+    if (targetSpan) {
+      targetSpan.scrollIntoView({ 
+        behavior: 'auto',
+        block: 'center',
+        inline: 'nearest'
+      });
+      console.log(`📍 [검색] 검색어 위치로 스크롤 완료`);
     }
   }
 }
