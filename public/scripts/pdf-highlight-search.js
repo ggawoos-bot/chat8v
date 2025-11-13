@@ -115,31 +115,39 @@ function applyHighlightForSearch(textLayer, keywords, searchText) {
       const queryIndex = textLower.indexOf(query);
       
       if (queryIndex !== -1) {
-        // ✅ 개선: 검색어가 정확히 일치하거나, 단어 경계에서 일치하는 경우만 하이라이트
+        // ✅ 개선: 검색어가 정확히 일치하거나, 앞뒤 모두 단어 경계인 경우만 하이라이트
         // 예: "어린이집"을 검색할 때:
         // - "어린이집" (정확 일치) → 하이라이트 ✓
-        // - "어린이집·학교" (시작 일치) → 하이라이트 ✓
-        // - "유치원·어린이집" (끝 일치) → 하이라이트 ✓
-        // - "유치원·어린이집·학교" (중간 포함) → 하이라이트 ✗ (너무 넓음)
+        // - "어린이집·학교" (앞뒤 경계) → 하이라이트 ✓
+        // - "유치원·어린이집" (앞뒤 경계) → 하이라이트 ✓
+        // - "유치원·어린이집·학교" (앞뒤 경계) → 하이라이트 ✓
+        // - "금연지원서비스"에서 "지원" 검색 (중간 포함, 경계 아님) → 하이라이트 ✗
         
         const isExactMatch = textLower === query;
-        const isStartMatch = textLower.startsWith(query) && (textLower.length === query.length || /[^\w가-힣]/.test(textLower[query.length]));
-        const isEndMatch = textLower.endsWith(query) && (textLower.length === query.length || /[^\w가-힣]/.test(textLower[textLower.length - query.length - 1]));
         
-        // ✅ 정확히 일치하거나, 시작/끝에서 단어 경계로 일치하는 경우만 하이라이트
-        if (isExactMatch || isStartMatch || isEndMatch) {
+        // 앞뒤 단어 경계 체크
+        const beforeChar = queryIndex > 0 ? textLower[queryIndex - 1] : '';
+        const afterChar = queryIndex + query.length < textLower.length 
+          ? textLower[queryIndex + query.length] 
+          : '';
+        
+        const isWordBoundaryBefore = queryIndex === 0 || /[^\w가-힣]/.test(beforeChar);
+        const isWordBoundaryAfter = queryIndex + query.length >= textLower.length || /[^\w가-힣]/.test(afterChar);
+        
+        // ✅ 정확히 일치하거나, 앞뒤 모두 단어 경계인 경우만 하이라이트
+        if (isExactMatch || (isWordBoundaryBefore && isWordBoundaryAfter)) {
           span.classList.add('highlight-word');
           queryHighlighted++;
           totalHighlighted++;
           
           // ✅ 디버깅: 처음 몇 개만 로그 출력
           if (queryHighlighted <= 5) {
-            console.log(`  ✓ [검색] span 하이라이트: "${text.substring(0, 50)}" (정확: ${isExactMatch}, 시작: ${isStartMatch}, 끝: ${isEndMatch})`);
+            console.log(`  ✓ [검색] span 하이라이트: "${text.substring(0, 50)}" (정확: ${isExactMatch}, 앞경계: ${isWordBoundaryBefore}, 뒤경계: ${isWordBoundaryAfter})`);
           }
         } else {
-          // ✅ 중간에 포함된 경우는 로그만 출력 (하이라이트하지 않음)
+          // ✅ 중간에 포함되거나 경계가 아닌 경우는 로그만 출력 (하이라이트하지 않음)
           if (queryHighlighted <= 5) {
-            console.log(`  ✗ [검색] span 하이라이트 건너뜀 (중간 포함): "${text.substring(0, 50)}"`);
+            console.log(`  ✗ [검색] span 하이라이트 건너뜀 (경계 아님): "${text.substring(0, 50)}"`);
           }
         }
         continue;
@@ -180,7 +188,8 @@ function applyHighlightForSearch(textLayer, keywords, searchText) {
               continue; // 다음 span 조합 시도
             }
             
-            // 검색어가 단어 경계에서 일치하는 경우, 검색어가 실제로 포함된 span들만 하이라이트
+            // 검색어가 단어 경계에서 일치하는 경우, 검색어가 완전히 포함된 span들만 하이라이트
+            // ✅ 개선: 부분 겹침 제외, 검색어가 완전히 포함된 span만 하이라이트
             let charCount = 0;
             let spansToHighlight = [];
             
@@ -192,8 +201,12 @@ function applyHighlightForSearch(textLayer, keywords, searchText) {
                 const queryStart = queryIndex;
                 const queryEnd = queryIndex + query.length;
                 
-                // span이 검색어와 겹치는지 확인
-                if (spanEnd > queryStart && spanStart < queryEnd) {
+                // ✅ 검색어가 span 내부에 완전히 포함되거나, span이 검색어 내부에 완전히 포함되는 경우만
+                // 부분 겹침은 제외 (예: span이 "지원서비스"이고 검색어가 "금연지원"이면 제외)
+                const spanFullyContainsQuery = spanStart <= queryStart && spanEnd >= queryEnd;
+                const queryFullyContainsSpan = queryStart <= spanStart && queryEnd >= spanEnd;
+                
+                if (spanFullyContainsQuery || queryFullyContainsSpan) {
                   spansToHighlight.push(k);
                 }
                 
