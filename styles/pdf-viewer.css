@@ -235,16 +235,16 @@ canvas {
 
 /* 검색 모드: 문장 하이라이트 (모든 검색어가 포함된 문장) */
 .textLayer .highlight-sentence {
-  background-color: rgba(173, 216, 230, 0.3); /* 연한 파란색 배경 */
-  border: 1px solid rgba(100, 150, 200, 0.5);
+  background-color: rgba(200, 230, 250, 0.15); /* 더 연한 파란색 배경 */
+  border: 1px solid rgba(120, 170, 220, 0.25);
   border-radius: 2px;
   padding: 1px 2px;
 }
 
 /* 검색 모드: 개별 검색어 하이라이트 */
 .textLayer .highlight-word {
-  background-color: rgba(255, 200, 100, 0.4); /* 연한 주황색 배경 */
-  border: 1px solid rgba(255, 150, 50, 0.6);
+  background-color: rgba(255, 220, 150, 0.2); /* 더 연한 주황색 배경 */
+  border: 1px solid rgba(255, 180, 80, 0.3);
   border-radius: 2px;
   padding: 1px 2px;
   font-weight: normal;

@@ -328,22 +328,41 @@ function applySentenceOrLineHighlight(textLayer, searchQueries) {
     }
     
     // 하이라이트된 검색어들의 위치 찾기
+    // 각 검색어별로 그룹 내에 최소 1개씩 있는지 확인 (같은 단어 중복 카운트 방지)
+    const foundQueries = new Set(); // 그룹 내에서 발견된 서로 다른 검색어들
     const queryPositions = [];
-    allHighlightedSpans.forEach(span => {
-      if (!groupSpans.includes(span)) return;
-      
-      const pos = spanPositions.get(span);
-      if (pos) {
-        queryPositions.push({
-          start: pos.start,
-          end: pos.end,
-          span: span
-        });
-      }
-    });
     
-    if (queryPositions.length < 2) {
-      return; // 검색어가 2개 미만이면 건너뛰기
+    // 각 검색어별로 그룹 내에 있는지 확인
+    for (const query of searchQueries) {
+      const queryLower = query.toLowerCase();
+      let foundInGroup = false;
+      
+      // 이 검색어에 해당하는 span들 중에서 그룹 내에 있는 것 찾기
+      const querySpans = queryMatches.get(query) || [];
+      for (const span of querySpans) {
+        if (groupSpans.includes(span)) {
+          const pos = spanPositions.get(span);
+          if (pos) {
+            if (!foundInGroup) {
+              // 각 검색어는 최소 1개만 카운트 (같은 단어가 여러 번 나타나도 1번만)
+              foundQueries.add(queryLower);
+              queryPositions.push({
+                start: pos.start,
+                end: pos.end,
+                span: span,
+                query: queryLower
+              });
+              foundInGroup = true;
+              break; // 이 검색어는 이미 그룹 내에서 찾았으므로 중복 체크 중단
+            }
+          }
+        }
+      }
+    }
+    
+    // 모든 서로 다른 검색어가 그룹 내에 있어야 함 (2개 이상)
+    if (foundQueries.size < 2) {
+      return; // 서로 다른 검색어가 2개 미만이면 건너뛰기
     }
     
     // 모든 검색어가 하나의 문장 내에 있는지 확인
