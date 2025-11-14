@@ -154,14 +154,16 @@ function applyHighlightForSearch(textLayer, keywords, searchText) {
       }
       
       // 검색어가 여러 span에 걸쳐 있을 수 있으므로 인접한 span들을 결합하여 검색
-      // 하지만 검색어가 실제로 포함된 span만 하이라이트
+      // ✅ 개선: 검색어가 정확히 일치하는 부분만 하이라이트 (문장 전체가 아닌 검색어만)
       let combinedText = '';
+      let spanTexts = []; // 각 span의 텍스트와 인덱스를 저장
       
       for (let j = i; j < Math.min(i + 10, textSpans.length); j++) {
         const nextSpan = textSpans[j];
         const nextText = (nextSpan.textContent || '').trim();
         
         if (nextText) {
+          spanTexts.push({ text: nextText, index: j });
           combinedText += nextText;
           
           // 검색어가 포함되는지 확인
@@ -188,30 +190,30 @@ function applyHighlightForSearch(textLayer, keywords, searchText) {
               continue; // 다음 span 조합 시도
             }
             
-            // 검색어가 단어 경계에서 일치하는 경우, 검색어가 완전히 포함된 span들만 하이라이트
-            // ✅ 개선: 부분 겹침 제외, 검색어가 완전히 포함된 span만 하이라이트
+            // ✅ 검색어가 정확히 일치하는 부분만 하이라이트
+            // 검색어의 시작과 끝 위치를 정확히 계산하여 해당 span들만 하이라이트
             let charCount = 0;
+            const queryStart = queryIndex;
+            const queryEnd = queryIndex + query.length;
             let spansToHighlight = [];
             
-            for (let k = i; k <= j; k++) {
-              const spanText = (textSpans[k].textContent || '').trim();
-              if (spanText) {
-                const spanStart = charCount;
-                const spanEnd = charCount + spanText.length;
-                const queryStart = queryIndex;
-                const queryEnd = queryIndex + query.length;
-                
-                // ✅ 검색어가 span 내부에 완전히 포함되거나, span이 검색어 내부에 완전히 포함되는 경우만
-                // 부분 겹침은 제외 (예: span이 "지원서비스"이고 검색어가 "금연지원"이면 제외)
-                const spanFullyContainsQuery = spanStart <= queryStart && spanEnd >= queryEnd;
-                const queryFullyContainsSpan = queryStart <= spanStart && queryEnd >= spanEnd;
-                
-                if (spanFullyContainsQuery || queryFullyContainsSpan) {
-                  spansToHighlight.push(k);
-                }
-                
-                charCount += spanText.length;
+            for (let k = 0; k < spanTexts.length; k++) {
+              const spanInfo = spanTexts[k];
+              const spanText = spanInfo.text;
+              const spanStart = charCount;
+              const spanEnd = charCount + spanText.length;
+              
+              // ✅ 검색어가 이 span과 겹치는지 확인
+              // 겹침 조건: span의 시작이 queryEnd보다 작고, span의 끝이 queryStart보다 커야 함
+              const hasOverlap = spanStart < queryEnd && spanEnd > queryStart;
+              
+              if (hasOverlap) {
+                // ✅ 검색어 범위와 겹치는 span만 하이라이트
+                // 검색어가 이 span의 일부라도 포함하면 하이라이트
+                spansToHighlight.push(spanInfo.index);
               }
+              
+              charCount += spanText.length;
             }
             
             // ✅ 검색어가 포함된 span들만 하이라이트
