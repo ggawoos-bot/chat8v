@@ -159,6 +159,236 @@ function highlightWordInSpan(span, query, queryLower, queryIndex) {
 }
 
 /**
+ * 복수 검색어에 대한 문장/라인 하이라이트 적용
+ * 검색어들이 하나의 문장 또는 5개 라인 이내에 있으면 해당 문장/라인을 하이라이트
+ * @param {HTMLElement} textLayer - 텍스트 레이어 요소
+ * @param {string[]} searchQueries - 검색어 배열
+ */
+function applySentenceOrLineHighlight(textLayer, searchQueries) {
+  if (!textLayer || !searchQueries || searchQueries.length < 2) {
+    return;
+  }
+  
+  // 모든 span 요소 수집
+  const allSpans = Array.from(textLayer.querySelectorAll('span'));
+  if (allSpans.length === 0) {
+    return;
+  }
+  
+  // 라인별로 그룹화
+  const lines = groupSpansByLine(allSpans);
+  
+  // 하이라이트된 검색어들의 위치 정보 수집
+  const highlightedSpans = Array.from(textLayer.querySelectorAll('.highlight-word'));
+  if (highlightedSpans.length === 0) {
+    console.log('ℹ️ [검색] 하이라이트된 검색어를 찾을 수 없습니다.');
+    return;
+  }
+  
+  // 각 검색어별로 하이라이트된 span들을 그룹화
+  const queryMatches = new Map(); // query -> [span 배열]
+  
+  highlightedSpans.forEach(span => {
+    const spanText = (span.textContent || '').toLowerCase().trim();
+    // 어떤 검색어와 일치하는지 찾기
+    for (const query of searchQueries) {
+      const queryLower = query.toLowerCase();
+      if (spanText === queryLower || spanText.includes(queryLower)) {
+        if (!queryMatches.has(query)) {
+          queryMatches.set(query, []);
+        }
+        queryMatches.get(query).push(span);
+        break; // 첫 번째 일치하는 검색어에만 할당
+      }
+    }
+  });
+  
+  // 모든 검색어가 최소 1개씩은 하이라이트되어 있는지 확인
+  const allQueriesFound = searchQueries.every(query => {
+    const queryLower = query.toLowerCase();
+    return Array.from(queryMatches.keys()).some(matchedQuery => 
+      matchedQuery.toLowerCase() === queryLower
+    );
+  });
+  
+  if (!allQueriesFound) {
+    console.log('ℹ️ [검색] 일부 검색어를 찾을 수 없어 문장 하이라이트를 건너뜁니다.');
+    return;
+  }
+  
+  // 모든 하이라이트된 span의 위치 정보 수집
+  const allHighlightedSpans = Array.from(queryMatches.values()).flat();
+  
+  // 각 하이라이트된 span의 라인 정보 수집
+  const highlightedLineInfo = new Map(); // lineKey -> {spans: [], minTop: number, maxTop: number}
+  
+  allHighlightedSpans.forEach(span => {
+    const style = window.getComputedStyle(span);
+    const top = parseFloat(style.top) || 0;
+    const lineKey = Math.round(top / 3) * 3;
+    
+    if (!highlightedLineInfo.has(lineKey)) {
+      highlightedLineInfo.set(lineKey, {
+        spans: [],
+        minTop: top,
+        maxTop: top
+      });
+    }
+    
+    const lineInfo = highlightedLineInfo.get(lineKey);
+    lineInfo.spans.push(span);
+    lineInfo.minTop = Math.min(lineInfo.minTop, top);
+    lineInfo.maxTop = Math.max(lineInfo.maxTop, top);
+  });
+  
+  // 라인 키를 정렬
+  const sortedLineKeys = Array.from(highlightedLineInfo.keys()).sort((a, b) => a - b);
+  
+  // 최대 라인 간격 확인 (5개 라인 이내)
+  // 연속된 라인들을 그룹화 (간격이 너무 크면 별도 그룹)
+  const maxLineGap = 5;
+  const lineHeight = 15; // 대략적인 라인 높이 (px)
+  let lineGroups = [];
+  let currentGroup = [sortedLineKeys[0]];
+  
+  for (let i = 1; i < sortedLineKeys.length; i++) {
+    const prevLine = sortedLineKeys[i - 1];
+    const currentLine = sortedLineKeys[i];
+    const lineDiff = currentLine - prevLine;
+    
+    // 라인 간격 계산
+    const lineGap = Math.round(lineDiff / lineHeight);
+    
+    if (lineGap <= maxLineGap) {
+      currentGroup.push(currentLine);
+    } else {
+      lineGroups.push(currentGroup);
+      currentGroup = [currentLine];
+    }
+  }
+  if (currentGroup.length > 0) {
+    lineGroups.push(currentGroup);
+  }
+  
+  // 각 그룹에 대해 문장 경계 확인 및 하이라이트
+  lineGroups.forEach((lineGroup, groupIdx) => {
+    if (lineGroup.length === 0) return;
+    
+    // 이 그룹에 속한 모든 span 수집 (라인 범위 확장)
+    const minLineKey = Math.min(...lineGroup);
+    const maxLineKey = Math.max(...lineGroup);
+    const groupSpans = [];
+    const processedSpans = new Set();
+    
+    // 라인 그룹 범위 내의 모든 span 수집
+    for (let lineKey = minLineKey; lineKey <= maxLineKey + (lineHeight * 2); lineKey += 3) {
+      const lineSpans = lines.get(lineKey) || [];
+      lineSpans.forEach(span => {
+        if (!processedSpans.has(span)) {
+          groupSpans.push(span);
+          processedSpans.add(span);
+        }
+      });
+    }
+    
+    if (groupSpans.length === 0) return;
+    
+    // span들을 문서 순서대로 정렬 (top, left 기준)
+    groupSpans.sort((a, b) => {
+      const styleA = window.getComputedStyle(a);
+      const styleB = window.getComputedStyle(b);
+      const topA = parseFloat(styleA.top) || 0;
+      const topB = parseFloat(styleB.top) || 0;
+      if (Math.abs(topA - topB) > 5) {
+        return topA - topB;
+      }
+      const leftA = parseFloat(styleA.left) || 0;
+      const leftB = parseFloat(styleB.left) || 0;
+      return leftA - leftB;
+    });
+    
+    // 전체 텍스트 구성 및 span 위치 매핑
+    let fullText = '';
+    const spanPositions = new Map(); // span -> {start: number, end: number}
+    let charPos = 0;
+    
+    groupSpans.forEach(span => {
+      const text = span.textContent || '';
+      spanPositions.set(span, { start: charPos, end: charPos + text.length });
+      fullText += text;
+      charPos += text.length;
+    });
+    
+    // 문장 경계 찾기 (마침표, 느낌표, 물음표 등)
+    const sentenceEndPattern = /[.!?。！？]\s*/g;
+    const sentenceEnds = [];
+    let match;
+    while ((match = sentenceEndPattern.exec(fullText)) !== null) {
+      sentenceEnds.push(match.index + match[0].length);
+    }
+    
+    // 하이라이트된 검색어들의 위치 찾기
+    const queryPositions = [];
+    allHighlightedSpans.forEach(span => {
+      if (!groupSpans.includes(span)) return;
+      
+      const pos = spanPositions.get(span);
+      if (pos) {
+        queryPositions.push({
+          start: pos.start,
+          end: pos.end,
+          span: span
+        });
+      }
+    });
+    
+    if (queryPositions.length < 2) {
+      return; // 검색어가 2개 미만이면 건너뛰기
+    }
+    
+    // 모든 검색어가 하나의 문장 내에 있는지 확인
+    const minPos = Math.min(...queryPositions.map(p => p.start));
+    const maxPos = Math.max(...queryPositions.map(p => p.end));
+    
+    // 문장 경계 찾기
+    let sentenceStart = 0;
+    let sentenceEnd = fullText.length;
+    
+    for (let i = 0; i < sentenceEnds.length; i++) {
+      if (sentenceEnds[i] > minPos) {
+        sentenceEnd = sentenceEnds[i];
+        if (i > 0) {
+          sentenceStart = sentenceEnds[i - 1];
+        }
+        break;
+      }
+    }
+    
+    // 검색어들이 하나의 문장 내에 있거나, 5개 라인 이내에 있는지 확인
+    const isWithinSentence = minPos >= sentenceStart && maxPos <= sentenceEnd;
+    const isWithin5Lines = lineGroup.length <= 5;
+    
+    if (isWithinSentence || isWithin5Lines) {
+      // 해당 문장 또는 라인들을 하이라이트
+      const startChar = isWithinSentence ? sentenceStart : 0;
+      const endChar = isWithinSentence ? sentenceEnd : fullText.length;
+      
+      // 해당 범위의 span들을 찾아서 하이라이트
+      groupSpans.forEach(span => {
+        const pos = spanPositions.get(span);
+        if (pos && pos.end > startChar && pos.start < endChar) {
+          span.classList.add('highlight-sentence');
+        }
+      });
+      
+      console.log(`✅ [검색] 문장/라인 하이라이트 적용: 그룹 ${groupIdx + 1} (${lineGroup.length}개 라인, ${isWithinSentence ? '문장 내' : '5라인 이내'})`);
+    }
+  });
+  
+  console.log(`✅ [검색] 문장/라인 하이라이트 완료`);
+}
+
+/**
  * 검색용 하이라이트 적용 함수
  * @param {HTMLElement} textLayer - 텍스트 레이어 요소
  * @param {string[]} keywords - 하이라이트할 키워드 배열 (사용 안 함)
@@ -462,12 +692,17 @@ function applyHighlightForSearch(textLayer, keywords, searchText) {
   
   console.log(`✅ [검색] 전체 하이라이트 완료: 총 ${totalHighlighted}개 하이라이트`);
   
-  // 2단계: 문장 하이라이트 제거 (단일/복수 검색어 모두)
-  // 기존 문장 하이라이트 제거
-  textLayer.querySelectorAll('.highlight-sentence').forEach(el => {
-    el.classList.remove('highlight-sentence');
-  });
-  console.log('ℹ️ [검색] 문장 하이라이트를 적용하지 않습니다. 검색어만 하이라이트합니다.');
+  // 2단계: 복수 검색어(2개 이상)인 경우 문장/라인 하이라이트 적용
+  if (searchQueries.length >= 2) {
+    console.log(`🔍 [검색] 복수 검색어 감지: 문장/라인 하이라이트 시작`);
+    applySentenceOrLineHighlight(textLayer, searchQueries);
+  } else {
+    // 단일 검색어인 경우 기존 문장 하이라이트 제거
+    textLayer.querySelectorAll('.highlight-sentence').forEach(el => {
+      el.classList.remove('highlight-sentence');
+    });
+    console.log('ℹ️ [검색] 단일 검색어: 문장 하이라이트를 적용하지 않습니다.');
+  }
   
   console.log('✅ [검색] 하이라이트 적용 완료');
 }
