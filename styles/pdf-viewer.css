@@ -235,8 +235,8 @@ canvas {
 
 /* 검색 모드: 문장 하이라이트 (모든 검색어가 포함된 문장) */
 .textLayer .highlight-sentence {
-  background-color: rgba(200, 230, 250, 0.15); /* 더 연한 파란색 배경 */
-  border: 1px solid rgba(120, 170, 220, 0.25);
+  background-color: rgba(180, 210, 240, 0.18); /* 파란색 배경 (20% 더 진함) */
+  border: 1px solid rgba(100, 150, 200, 0.3);
   border-radius: 2px;
   padding: 1px 2px;
 }
