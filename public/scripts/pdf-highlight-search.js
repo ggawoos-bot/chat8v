@@ -99,63 +99,29 @@ function highlightWordInSpan(span, query, queryLower, queryIndex) {
     return false;
   }
   
-  // 원본 span의 스타일과 위치 정보 가져오기
-  const style = window.getComputedStyle(span);
-  const originalLeft = parseFloat(style.left) || 0;
-  const originalTop = parseFloat(style.top) || 0;
-  const fontSize = parseFloat(style.fontSize) || 12;
-  const fontFamily = style.fontFamily || 'sans-serif';
-  const fontWeight = style.fontWeight || 'normal';
-  const transform = style.transform || 'none';
-  const transformOrigin = style.transformOrigin || '0% 0%';
-  
-  // ✅ Canvas를 사용하여 텍스트 너비 정확히 측정
-  const measureCanvas = document.createElement('canvas');
-  const measureCtx = measureCanvas.getContext('2d');
-  const letterSpacing = parseFloat(style.letterSpacing) || 0;
-  const wordSpacing = parseFloat(style.wordSpacing) || 0;
-  measureCtx.font = `${fontWeight} ${fontSize}px ${fontFamily}`;
+  // span의 스타일 복사 함수
+  const copySpanStyles = (source, target) => {
+    const style = window.getComputedStyle(source);
+    // PDF.js span의 필수 스타일 속성들 복사
+    const styleProps = [
+      'position', 'left', 'top', 'fontSize', 'fontFamily', 'fontWeight',
+      'transform', 'transformOrigin', 'color', 'whiteSpace', 'letterSpacing',
+      'wordSpacing', 'textRendering', 'textTransform'
+    ];
+    styleProps.forEach(prop => {
+      const value = style[prop];
+      if (value) {
+        target.style[prop] = value;
+      }
+    });
+    // 클래스도 복사 (PDF.js가 사용하는 클래스들)
+    target.className = source.className;
+  };
   
   // 텍스트를 검색어 기준으로 분할
   const beforeText = text.substring(0, queryIndex);
   const matchText = text.substring(queryIndex, queryIndex + query.length);
   const afterText = text.substring(queryIndex + query.length);
-  
-  // 각 텍스트 부분의 실제 너비 측정 (letterSpacing 고려)
-  const measureTextWidth = (text) => {
-    if (!text) return 0;
-    const baseWidth = measureCtx.measureText(text).width;
-    // letterSpacing이 있으면 추가 (문자 수 - 1) * letterSpacing
-    const letterSpacingWidth = letterSpacing > 0 ? (text.length - 1) * letterSpacing : 0;
-    // wordSpacing이 있으면 공백 개수 * wordSpacing
-    const wordSpacingWidth = wordSpacing > 0 ? (text.match(/\s/g) || []).length * wordSpacing : 0;
-    return baseWidth + letterSpacingWidth + wordSpacingWidth;
-  };
-  
-  const beforeWidth = measureTextWidth(beforeText);
-  const matchWidth = measureTextWidth(matchText);
-  
-  // span의 스타일 복사 함수 (위치 제외)
-  const copySpanStyles = (source, target, offsetLeft = 0) => {
-    const sourceStyle = window.getComputedStyle(source);
-    // PDF.js span의 필수 스타일 속성들 복사
-    const styleProps = [
-      'position', 'top', 'fontSize', 'fontFamily', 'fontWeight',
-      'transform', 'transformOrigin', 'color', 'whiteSpace', 'letterSpacing',
-      'wordSpacing', 'textRendering', 'textTransform'
-    ];
-    styleProps.forEach(prop => {
-      const value = sourceStyle[prop];
-      if (value && value !== 'none') {
-        target.style[prop] = value;
-      }
-    });
-    // left 위치는 offsetLeft를 고려하여 설정
-    target.style.left = (originalLeft + offsetLeft) + 'px';
-    target.style.top = originalTop + 'px';
-    // 클래스도 복사 (PDF.js가 사용하는 클래스들)
-    target.className = source.className;
-  };
   
   // 원본 span의 부모
   const parent = span.parentNode;
@@ -167,22 +133,22 @@ function highlightWordInSpan(span, query, queryLower, queryIndex) {
   if (beforeText) {
     const beforeSpan = span.cloneNode(false);
     beforeSpan.textContent = beforeText;
-    copySpanStyles(span, beforeSpan, 0);
+    copySpanStyles(span, beforeSpan);
     fragment.appendChild(beforeSpan);
   }
   
-  // 검색어 부분 - 하이라이트 적용 (정확한 위치 계산)
+  // 검색어 부분 - 하이라이트 적용
   const highlightSpan = span.cloneNode(false);
   highlightSpan.textContent = matchText;
   highlightSpan.classList.add('highlight-word');
-  copySpanStyles(span, highlightSpan, beforeWidth);
+  copySpanStyles(span, highlightSpan);
   fragment.appendChild(highlightSpan);
   
   // 검색어 이후 텍스트가 있으면 span 생성
   if (afterText) {
     const afterSpan = span.cloneNode(false);
     afterSpan.textContent = afterText;
-    copySpanStyles(span, afterSpan, beforeWidth + matchWidth);
+    copySpanStyles(span, afterSpan);
     fragment.appendChild(afterSpan);
   }
   
@@ -426,57 +392,25 @@ function applyHighlightForSearch(textLayer, keywords, searchText) {
                 totalHighlighted++;
                 processedSpans.add(span);
               } else {
-                // span의 일부만 검색어인 경우 - 분할 필요 (정확한 위치 계산)
+                // span의 일부만 검색어인 경우 - 분할 필요
                 const beforeText = spanText.substring(0, localQueryStart);
                 const matchText = spanText.substring(localQueryStart, localQueryEnd);
                 const afterText = spanText.substring(localQueryEnd);
                 
-                // 원본 span의 스타일과 위치 정보 가져오기
-                const spanStyle = window.getComputedStyle(span);
-                const originalLeft = parseFloat(spanStyle.left) || 0;
-                const originalTop = parseFloat(spanStyle.top) || 0;
-                const fontSize = parseFloat(spanStyle.fontSize) || 12;
-                const fontFamily = spanStyle.fontFamily || 'sans-serif';
-                const fontWeight = spanStyle.fontWeight || 'normal';
-                
-                // ✅ Canvas를 사용하여 텍스트 너비 정확히 측정
-                const measureCanvas = document.createElement('canvas');
-                const measureCtx = measureCanvas.getContext('2d');
-                const letterSpacing = parseFloat(spanStyle.letterSpacing) || 0;
-                const wordSpacing = parseFloat(spanStyle.wordSpacing) || 0;
-                measureCtx.font = `${fontWeight} ${fontSize}px ${fontFamily}`;
-                
-                // 각 텍스트 부분의 실제 너비 측정 (letterSpacing 고려)
-                const measureTextWidth = (text) => {
-                  if (!text) return 0;
-                  const baseWidth = measureCtx.measureText(text).width;
-                  // letterSpacing이 있으면 추가 (문자 수 - 1) * letterSpacing
-                  const letterSpacingWidth = letterSpacing > 0 ? (text.length - 1) * letterSpacing : 0;
-                  // wordSpacing이 있으면 공백 개수 * wordSpacing
-                  const wordSpacingWidth = wordSpacing > 0 ? (text.match(/\s/g) || []).length * wordSpacing : 0;
-                  return baseWidth + letterSpacingWidth + wordSpacingWidth;
-                };
-                
-                const beforeWidth = measureTextWidth(beforeText);
-                const matchWidth = measureTextWidth(matchText);
-                
-                // span의 스타일 복사 함수 (위치 제외)
-                const copySpanStyles = (source, target, offsetLeft = 0) => {
-                  const sourceStyle = window.getComputedStyle(source);
+                // span의 스타일 복사 함수
+                const copySpanStyles = (source, target) => {
+                  const style = window.getComputedStyle(source);
                   const styleProps = [
-                    'position', 'top', 'fontSize', 'fontFamily', 'fontWeight',
+                    'position', 'left', 'top', 'fontSize', 'fontFamily', 'fontWeight',
                     'transform', 'transformOrigin', 'color', 'whiteSpace', 'letterSpacing',
                     'wordSpacing', 'textRendering', 'textTransform'
                   ];
                   styleProps.forEach(prop => {
-                    const value = sourceStyle[prop];
-                    if (value && value !== 'none') {
+                    const value = style[prop];
+                    if (value) {
                       target.style[prop] = value;
                     }
                   });
-                  // left 위치는 offsetLeft를 고려하여 설정
-                  target.style.left = (originalLeft + offsetLeft) + 'px';
-                  target.style.top = originalTop + 'px';
                   target.className = source.className;
                 };
                 
@@ -486,20 +420,20 @@ function applyHighlightForSearch(textLayer, keywords, searchText) {
                 if (beforeText) {
                   const beforeSpan = span.cloneNode(false);
                   beforeSpan.textContent = beforeText;
-                  copySpanStyles(span, beforeSpan, 0);
+                  copySpanStyles(span, beforeSpan);
                   fragment.appendChild(beforeSpan);
                 }
                 
                 const highlightSpan = span.cloneNode(false);
                 highlightSpan.textContent = matchText;
                 highlightSpan.classList.add('highlight-word');
-                copySpanStyles(span, highlightSpan, beforeWidth);
+                copySpanStyles(span, highlightSpan);
                 fragment.appendChild(highlightSpan);
                 
                 if (afterText) {
                   const afterSpan = span.cloneNode(false);
                   afterSpan.textContent = afterText;
-                  copySpanStyles(span, afterSpan, beforeWidth + matchWidth);
+                  copySpanStyles(span, afterSpan);
                   fragment.appendChild(afterSpan);
                 }
                 
