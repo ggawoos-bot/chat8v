@@ -100,8 +100,12 @@ export class FirestoreService {
       console.log('🔥 Firestore에서 키워드 검색');
       const chunks = await this.fetchChunksFromFirestore(keywords, documentId, limitCount);
       
-      // 3. 캐시에 저장
-      await this.firestoreCache.setCachedSearchResults(keywords, documentId, chunks);
+      // 3. 캐시에 저장 (실패해도 검색 결과는 반환)
+      try {
+        await this.firestoreCache.setCachedSearchResults(keywords, documentId, chunks);
+      } catch (cacheError) {
+        console.warn('⚠️ 캐시 저장 실패 (검색 결과는 정상 반환):', cacheError);
+      }
       
       return chunks;
     } catch (error) {
@@ -239,8 +243,12 @@ export class FirestoreService {
       console.log('🔥 Firestore에서 텍스트 검색');
       const chunks = await this.fetchChunksByTextFromFirestore(searchText, documentId, limitCount);
       
-      // 3. 캐시에 저장
-      await this.firestoreCache.setCachedTextSearchResults(searchText, documentId, chunks);
+      // 3. 캐시에 저장 (실패해도 검색 결과는 반환)
+      try {
+        await this.firestoreCache.setCachedTextSearchResults(searchText, documentId, chunks);
+      } catch (cacheError) {
+        console.warn('⚠️ 캐시 저장 실패 (검색 결과는 정상 반환):', cacheError);
+      }
       
       return chunks;
     } catch (error) {
@@ -342,8 +350,12 @@ export class FirestoreService {
       console.log(`🔥 Firestore에서 문서 청크 조회: ${documentId}`);
       const chunks = await this.fetchChunksByDocumentFromFirestore(documentId);
       
-      // 3. 캐시에 저장
-      await this.firestoreCache.setCachedChunks(documentId, chunks);
+      // 3. 캐시에 저장 (실패해도 조회 결과는 반환)
+      try {
+        await this.firestoreCache.setCachedChunks(documentId, chunks);
+      } catch (cacheError) {
+        console.warn('⚠️ 캐시 저장 실패 (조회 결과는 정상 반환):', cacheError);
+      }
       
       return chunks;
     } catch (error) {
@@ -433,8 +445,12 @@ export class FirestoreService {
       console.log('🔥 Firestore에서 문서 목록 조회');
       const documents = await this.fetchDocumentsFromFirestore();
       
-      // 3. 캐시에 저장
-      await this.firestoreCache.setCachedDocuments(documents);
+      // 3. 캐시에 저장 (실패해도 조회 결과는 반환)
+      try {
+        await this.firestoreCache.setCachedDocuments(documents);
+      } catch (cacheError) {
+        console.warn('⚠️ 캐시 저장 실패 (조회 결과는 정상 반환):', cacheError);
+      }
       
       return documents;
     } catch (error) {
