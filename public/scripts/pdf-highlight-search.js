@@ -239,15 +239,61 @@ function applyHighlightForSearch(textLayer, keywords, searchText) {
           const queryIndex = lowerCombined.indexOf(query);
           
           if (queryIndex !== -1) {
-            // ✅ 단어 경계 체크: 검색어가 단어 경계에서 일치하는지 확인
-            const beforeChar = queryIndex > 0 ? lowerCombined[queryIndex - 1] : '';
-            const afterChar = queryIndex + query.length < lowerCombined.length 
-              ? lowerCombined[queryIndex + query.length] 
+            // ✅ 개선: 각 span 내에서 단어 경계를 체크 (span 경계 고려)
+            // 검색어가 시작하는 span과 끝나는 span을 찾기
+            let charCount = 0;
+            let queryStartSpanIdx = -1;
+            let queryEndSpanIdx = -1;
+            let queryStartInStartSpan = -1;
+            let queryEndInEndSpan = -1;
+            const queryStart = queryIndex;
+            const queryEnd = queryIndex + query.length;
+            
+            for (let k = 0; k < spanTexts.length; k++) {
+              const spanStart = charCount;
+              const spanEnd = charCount + spanTexts[k].text.length;
+              
+              // 검색어 시작이 이 span에 있는지
+              if (queryStart >= spanStart && queryStart < spanEnd && queryStartSpanIdx === -1) {
+                queryStartSpanIdx = k;
+                queryStartInStartSpan = queryStart - spanStart;
+              }
+              
+              // 검색어 끝이 이 span에 있는지
+              if (queryEnd > spanStart && queryEnd <= spanEnd && queryEndSpanIdx === -1) {
+                queryEndSpanIdx = k;
+                queryEndInEndSpan = queryEnd - spanStart;
+              }
+              
+              charCount += spanTexts[k].text.length;
+            }
+            
+            if (queryStartSpanIdx === -1 || queryEndSpanIdx === -1) {
+              continue; // span을 찾지 못함
+            }
+            
+            // ✅ 시작 span에서 단어 경계 체크
+            const startSpanText = spanTexts[queryStartSpanIdx].text.toLowerCase();
+            const beforeChar = queryStartInStartSpan > 0 
+              ? startSpanText[queryStartInStartSpan - 1] 
+              : '';
+            const isWordBoundaryBefore = queryStartInStartSpan === 0 || /[^\w가-힣]/.test(beforeChar);
+            
+            // ✅ 끝 span에서 단어 경계 체크
+            const endSpanText = spanTexts[queryEndSpanIdx].text.toLowerCase();
+            const afterChar = queryEndInEndSpan < endSpanText.length 
+              ? endSpanText[queryEndInEndSpan] 
               : '';
             
-            // 단어 경계 확인: 검색어 앞뒤가 단어 문자가 아니거나, 문자열의 시작/끝이어야 함
-            const isWordBoundaryBefore = queryIndex === 0 || /[^\w가-힣]/.test(beforeChar);
-            const isWordBoundaryAfter = queryIndex + query.length >= lowerCombined.length || /[^\w가-힣]/.test(afterChar);
+            // ✅ span 경계는 단어 경계로 간주
+            // 1. 검색어가 span의 끝에서 끝나는 경우 (queryEndInEndSpan === endSpanText.length)
+            // 2. 검색어가 다음 span의 시작에서 끝나는 경우 (queryEndInEndSpan === 0 && 다른 span)
+            // 예: span1="과태료", span2="를" → "과태료"는 span1의 끝에서 끝나므로 단어 경계로 인정
+            const isAtSpanEnd = queryEndInEndSpan >= endSpanText.length;
+            const isAtNextSpanStart = queryEndInEndSpan === 0 && queryEndSpanIdx > queryStartSpanIdx;
+            const isAtSpanBoundary = isAtSpanEnd || isAtNextSpanStart;
+            const isWordBoundaryAfter = isAtSpanBoundary || 
+                                       /[^\w가-힣]/.test(afterChar);
             
             // ✅ 검색어가 단어 경계에서 일치하는 경우에만 하이라이트
             if (!isWordBoundaryBefore || !isWordBoundaryAfter) {
@@ -260,9 +306,7 @@ function applyHighlightForSearch(textLayer, keywords, searchText) {
             
             // ✅ 검색어가 정확히 일치하는 부분만 하이라이트
             // 검색어의 시작과 끝 위치를 정확히 계산하여 해당 span들을 분할
-            let charCount = 0;
-            const queryStart = queryIndex;
-            const queryEnd = queryIndex + query.length;
+            charCount = 0;
             let spansToProcess = [];
             
             for (let k = 0; k < spanTexts.length; k++) {
