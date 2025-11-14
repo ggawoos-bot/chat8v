@@ -42,12 +42,17 @@ function renderPageForSearch(num, canvas, ctx, textLayerDiv, options = {}) {
       
       return page.getTextContent();
     }).then((textContent) => {
-      // 텍스트 레이어 초기화
+      // ✅ Canvas에 직접 하이라이트 그리기 (정확한 위치)
+      if (searchText && searchText.trim()) {
+        highlightOnCanvas(canvas, page, viewport, textContent, searchText);
+      }
+      
+      // 텍스트 레이어 초기화 (텍스트 선택을 위해 유지)
       textLayerDiv.innerHTML = '';
       textLayerDiv.style.width = viewport.width + 'px';
       textLayerDiv.style.height = viewport.height + 'px';
       
-      // PDF.js의 텍스트 레이어 렌더링
+      // PDF.js의 텍스트 레이어 렌더링 (텍스트 선택 기능을 위해 유지)
       try {
         pdfjsLib.renderTextLayer({
           textContentSource: textContent,
@@ -59,18 +64,13 @@ function renderPageForSearch(num, canvas, ctx, textLayerDiv, options = {}) {
         console.warn('⚠️ [검색] 텍스트 레이어 렌더링 실패 (계속 진행):', error);
       }
       
-      // ✅ 개선: MutationObserver를 사용하여 텍스트 레이어 렌더링 완료 감지
-      // 고정 지연(300ms) 대신 실제 렌더링 완료 시점을 감지
-      let highlightApplied = false;
-      const applyHighlight = () => {
-        if (highlightApplied) return;
-        highlightApplied = true;
+      // ✅ 하이라이트된 위치로 스크롤
+      // Canvas 하이라이트의 경우 텍스트 레이어의 span을 사용하여 스크롤 위치 계산
+      let scrollApplied = false;
+      const applyScroll = () => {
+        if (scrollApplied) return;
+        scrollApplied = true;
         
-        // 검색어 하이라이트 적용
-        if (searchText && searchText.trim()) {
-          applyHighlightForSearch(textLayerDiv, [], searchText);
-        }
-        // 하이라이트된 위치로 스크롤
         scrollToHighlightForSearch(textLayerDiv, searchIndex);
         console.log(`✅ [검색] 페이지 ${num} 렌더링 완료`);
         
@@ -79,29 +79,25 @@ function renderPageForSearch(num, canvas, ctx, textLayerDiv, options = {}) {
         }
       };
       
-      // MutationObserver로 텍스트 레이어 변경 감지
+      // MutationObserver로 텍스트 레이어 변경 감지 (스크롤용)
       const observer = new MutationObserver((mutations, obs) => {
-        // span 요소가 추가되었는지 확인
         const spans = textLayerDiv.querySelectorAll('span');
         if (spans.length > 0) {
-          // span이 추가되었으면 잠시 대기 후 하이라이트 적용 (렌더링 완료 대기)
           obs.disconnect();
-          // 짧은 지연으로 마지막 span까지 렌더링 완료 대기
-          setTimeout(applyHighlight, 50);
+          setTimeout(applyScroll, 50);
         }
       });
       
-      // 텍스트 레이어 변경 감지 시작
       observer.observe(textLayerDiv, {
         childList: true,
         subtree: true
       });
       
-      // 폴백: 500ms 후에도 span이 없으면 하이라이트 적용 (빈 페이지 처리)
+      // 폴백: 500ms 후에도 span이 없으면 스크롤 적용
       setTimeout(() => {
-        if (!highlightApplied) {
+        if (!scrollApplied) {
           observer.disconnect();
-          applyHighlight();
+          applyScroll();
         }
       }, 500);
     }).catch((error) => {
