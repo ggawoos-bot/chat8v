@@ -55,6 +55,90 @@ function isNewLine(currentTop, lastTop) {
 }
 
 /**
+ * span 내부의 텍스트를 검색어 기준으로 분할하고 검색어 부분만 하이라이트
+ * @param {HTMLElement} span - 원본 span 요소
+ * @param {string} query - 검색어 (원본 대소문자)
+ * @param {string} queryLower - 검색어 (소문자)
+ * @param {number} queryIndex - 검색어의 시작 인덱스 (소문자 기준)
+ * @returns {boolean} 하이라이트 성공 여부
+ */
+function highlightWordInSpan(span, query, queryLower, queryIndex) {
+  const text = span.textContent || '';
+  if (!text || queryIndex === -1) return false;
+  
+  // 단어 경계 체크
+  const beforeChar = queryIndex > 0 ? text.toLowerCase()[queryIndex - 1] : '';
+  const afterChar = queryIndex + query.length < text.length 
+    ? text.toLowerCase()[queryIndex + query.length] 
+    : '';
+  
+  const isWordBoundaryBefore = queryIndex === 0 || /[^\w가-힣]/.test(beforeChar);
+  const isWordBoundaryAfter = queryIndex + query.length >= text.length || /[^\w가-힣]/.test(afterChar);
+  
+  if (!isWordBoundaryBefore || !isWordBoundaryAfter) {
+    return false;
+  }
+  
+  // span의 스타일 복사 함수
+  const copySpanStyles = (source, target) => {
+    const style = window.getComputedStyle(source);
+    // PDF.js span의 필수 스타일 속성들 복사
+    const styleProps = [
+      'position', 'left', 'top', 'fontSize', 'fontFamily', 'fontWeight',
+      'transform', 'transformOrigin', 'color', 'whiteSpace', 'letterSpacing',
+      'wordSpacing', 'textRendering', 'textTransform'
+    ];
+    styleProps.forEach(prop => {
+      const value = style[prop];
+      if (value) {
+        target.style[prop] = value;
+      }
+    });
+    // 클래스도 복사 (PDF.js가 사용하는 클래스들)
+    target.className = source.className;
+  };
+  
+  // 텍스트를 검색어 기준으로 분할
+  const beforeText = text.substring(0, queryIndex);
+  const matchText = text.substring(queryIndex, queryIndex + query.length);
+  const afterText = text.substring(queryIndex + query.length);
+  
+  // 원본 span의 부모
+  const parent = span.parentNode;
+  
+  // 새로운 fragment 생성
+  const fragment = document.createDocumentFragment();
+  
+  // 검색어 이전 텍스트가 있으면 span 생성
+  if (beforeText) {
+    const beforeSpan = span.cloneNode(false);
+    beforeSpan.textContent = beforeText;
+    copySpanStyles(span, beforeSpan);
+    fragment.appendChild(beforeSpan);
+  }
+  
+  // 검색어 부분 - 하이라이트 적용
+  const highlightSpan = span.cloneNode(false);
+  highlightSpan.textContent = matchText;
+  highlightSpan.classList.add('highlight-word');
+  copySpanStyles(span, highlightSpan);
+  fragment.appendChild(highlightSpan);
+  
+  // 검색어 이후 텍스트가 있으면 span 생성
+  if (afterText) {
+    const afterSpan = span.cloneNode(false);
+    afterSpan.textContent = afterText;
+    copySpanStyles(span, afterSpan);
+    fragment.appendChild(afterSpan);
+  }
+  
+  // 원본 span을 fragment로 교체
+  parent.replaceChild(fragment, span);
+  
+  return true;
+}
+
+/**
  * 검색용 하이라이트 적용 함수
  * @param {HTMLElement} textLayer - 텍스트 레이어 요소
  * @param {string[]} keywords - 하이라이트할 키워드 배열 (사용 안 함)
@@ -75,82 +159,63 @@ function applyHighlightForSearch(textLayer, keywords, searchText) {
     return;
   }
   
-  // ✅ 공백으로 구분된 검색어 파싱
+  // ✅ 공백으로 구분된 검색어 파싱 (원본과 소문자 버전 모두 저장)
   const searchQueries = searchText
     .split(/\s+/)
     .map(q => q.trim())
-    .filter(q => q.length > 0)
-    .map(q => q.toLowerCase());
+    .filter(q => q.length > 0);
   
   if (searchQueries.length === 0) {
     console.log('ℹ️ [검색] 검색어가 없습니다.');
     return;
   }
   
-  const textSpans = textLayer.querySelectorAll('span');
-  if (textSpans.length === 0) {
-    console.log('ℹ️ [검색] 텍스트 span이 없습니다.');
-    return;
-  }
-  
-  // 라인별 그룹화 (문장 하이라이트를 위한 준비)
-  const lines = groupSpansByLine(textSpans);
-  
   // 1단계: 모든 검색어를 개별적으로 하이라이트
   console.log(`🔍 [검색] 하이라이트 시작: 검색어 ${searchQueries.length}개`, searchQueries);
   let totalHighlighted = 0;
   
-  searchQueries.forEach((query, queryIdx) => {
-    console.log(`🔍 [검색] 검색어 ${queryIdx + 1}/${searchQueries.length} 처리 중: "${query}"`);
+  searchQueries.forEach((queryOriginal, queryIdx) => {
+    const query = queryOriginal.toLowerCase();
+    console.log(`🔍 [검색] 검색어 ${queryIdx + 1}/${searchQueries.length} 처리 중: "${queryOriginal}"`);
     let queryHighlighted = 0;
     
+    // ✅ DOM이 변경될 수 있으므로 매번 span을 다시 수집
+    let textSpans = Array.from(textLayer.querySelectorAll('span'));
+    let processedSpans = new Set(); // 이미 처리된 span 추적
+    
     for (let i = 0; i < textSpans.length; i++) {
-      const span = textSpans[i];
-      const text = (span.textContent || '').trim();
+      // 이미 처리된 span은 건너뛰기 (분할로 인해 새로 생성된 span)
+      if (processedSpans.has(textSpans[i])) continue;
       
-      if (!text) continue;
+      const span = textSpans[i];
+      const text = span.textContent || '';
+      
+      if (!text.trim()) continue;
       
       // 단일 span에서 검색어 찾기
       const textLower = text.toLowerCase();
-      const queryIndex = textLower.indexOf(query);
+      let queryIndex = textLower.indexOf(query);
       
-      if (queryIndex !== -1) {
-        // ✅ 개선: 검색어가 정확히 일치하거나, 앞뒤 모두 단어 경계인 경우만 하이라이트
-        // 예: "어린이집"을 검색할 때:
-        // - "어린이집" (정확 일치) → 하이라이트 ✓
-        // - "어린이집·학교" (앞뒤 경계) → 하이라이트 ✓
-        // - "유치원·어린이집" (앞뒤 경계) → 하이라이트 ✓
-        // - "유치원·어린이집·학교" (앞뒤 경계) → 하이라이트 ✓
-        // - "금연지원서비스"에서 "지원" 검색 (중간 포함, 경계 아님) → 하이라이트 ✗
-        
-        const isExactMatch = textLower === query;
-        
-        // 앞뒤 단어 경계 체크
-        const beforeChar = queryIndex > 0 ? textLower[queryIndex - 1] : '';
-        const afterChar = queryIndex + query.length < textLower.length 
-          ? textLower[queryIndex + query.length] 
-          : '';
-        
-        const isWordBoundaryBefore = queryIndex === 0 || /[^\w가-힣]/.test(beforeChar);
-        const isWordBoundaryAfter = queryIndex + query.length >= textLower.length || /[^\w가-힣]/.test(afterChar);
-        
-        // ✅ 정확히 일치하거나, 앞뒤 모두 단어 경계인 경우만 하이라이트
-        if (isExactMatch || (isWordBoundaryBefore && isWordBoundaryAfter)) {
-          span.classList.add('highlight-word');
+      // ✅ span 내에서 검색어가 여러 번 나타날 수 있으므로 모두 처리
+      while (queryIndex !== -1) {
+        // span을 분할하여 검색어 부분만 하이라이트
+        if (highlightWordInSpan(span, queryOriginal, query, queryIndex)) {
           queryHighlighted++;
           totalHighlighted++;
           
           // ✅ 디버깅: 처음 몇 개만 로그 출력
           if (queryHighlighted <= 5) {
-            console.log(`  ✓ [검색] span 하이라이트: "${text.substring(0, 50)}" (정확: ${isExactMatch}, 앞경계: ${isWordBoundaryBefore}, 뒤경계: ${isWordBoundaryAfter})`);
+            console.log(`  ✓ [검색] span 분할 하이라이트: "${text.substring(queryIndex, queryIndex + query.length)}"`);
           }
-        } else {
-          // ✅ 중간에 포함되거나 경계가 아닌 경우는 로그만 출력 (하이라이트하지 않음)
-          if (queryHighlighted <= 5) {
-            console.log(`  ✗ [검색] span 하이라이트 건너뜀 (경계 아님): "${text.substring(0, 50)}"`);
-          }
+          
+          // DOM이 변경되었으므로 span을 다시 수집하고 현재 위치 조정
+          processedSpans.add(span);
+          textSpans = Array.from(textLayer.querySelectorAll('span'));
+          break; // 현재 span 처리는 완료, 다음 span으로 이동
         }
-        continue;
+        
+        // 같은 span 내에서 다음 검색어 위치 찾기
+        queryIndex = textLower.indexOf(query, queryIndex + 1);
       }
       
       // 검색어가 여러 span에 걸쳐 있을 수 있으므로 인접한 span들을 결합하여 검색
@@ -159,11 +224,14 @@ function applyHighlightForSearch(textLayer, keywords, searchText) {
       let spanTexts = []; // 각 span의 텍스트와 인덱스를 저장
       
       for (let j = i; j < Math.min(i + 10, textSpans.length); j++) {
-        const nextSpan = textSpans[j];
-        const nextText = (nextSpan.textContent || '').trim();
+        // 이미 처리된 span은 건너뛰기
+        if (processedSpans.has(textSpans[j])) continue;
         
-        if (nextText) {
-          spanTexts.push({ text: nextText, index: j });
+        const nextSpan = textSpans[j];
+        const nextText = nextSpan.textContent || '';
+        
+        if (nextText.trim()) {
+          spanTexts.push({ text: nextText, span: nextSpan, index: j });
           combinedText += nextText;
           
           // 검색어가 포함되는지 확인
@@ -191,11 +259,11 @@ function applyHighlightForSearch(textLayer, keywords, searchText) {
             }
             
             // ✅ 검색어가 정확히 일치하는 부분만 하이라이트
-            // 검색어의 시작과 끝 위치를 정확히 계산하여 해당 span들만 하이라이트
+            // 검색어의 시작과 끝 위치를 정확히 계산하여 해당 span들을 분할
             let charCount = 0;
             const queryStart = queryIndex;
             const queryEnd = queryIndex + query.length;
-            let spansToHighlight = [];
+            let spansToProcess = [];
             
             for (let k = 0; k < spanTexts.length; k++) {
               const spanInfo = spanTexts[k];
@@ -208,28 +276,98 @@ function applyHighlightForSearch(textLayer, keywords, searchText) {
               const hasOverlap = spanStart < queryEnd && spanEnd > queryStart;
               
               if (hasOverlap) {
-                // ✅ 검색어 범위와 겹치는 span만 하이라이트
-                // 검색어가 이 span의 일부라도 포함하면 하이라이트
-                spansToHighlight.push(spanInfo.index);
+                // span 내에서 검색어의 시작과 끝 위치 계산
+                const spanQueryStart = Math.max(0, queryStart - spanStart);
+                const spanQueryEnd = Math.min(spanText.length, queryEnd - spanStart);
+                spansToProcess.push({
+                  span: spanInfo.span,
+                  spanStart: spanStart,
+                  spanEnd: spanEnd,
+                  queryStartInSpan: spanQueryStart,
+                  queryEndInSpan: spanQueryEnd
+                });
               }
               
               charCount += spanText.length;
             }
             
-            // ✅ 검색어가 포함된 span들만 하이라이트
-            spansToHighlight.forEach(k => {
-              if (!textSpans[k].classList.contains('highlight-word')) {
-                textSpans[k].classList.add('highlight-word');
+            // ✅ 각 span을 검색어 부분만 하이라이트하도록 분할
+            // 역순으로 처리하여 인덱스 변경 문제 방지
+            for (let k = spansToProcess.length - 1; k >= 0; k--) {
+              const spanInfo = spansToProcess[k];
+              const span = spanInfo.span;
+              const spanText = span.textContent || '';
+              
+              // span 내에서 검색어 위치
+              const localQueryStart = spanInfo.queryStartInSpan;
+              const localQueryEnd = spanInfo.queryEndInSpan;
+              
+              // span을 분할하여 검색어 부분만 하이라이트
+              if (localQueryStart === 0 && localQueryEnd === spanText.length) {
+                // span 전체가 검색어인 경우
+                span.classList.add('highlight-word');
                 queryHighlighted++;
                 totalHighlighted++;
+                processedSpans.add(span);
+              } else {
+                // span의 일부만 검색어인 경우 - 분할 필요
+                const beforeText = spanText.substring(0, localQueryStart);
+                const matchText = spanText.substring(localQueryStart, localQueryEnd);
+                const afterText = spanText.substring(localQueryEnd);
                 
-                // ✅ 디버깅: 처음 몇 개만 로그 출력
-                if (queryHighlighted <= 5) {
-                  const spanText = (textSpans[k].textContent || '').trim();
-                  console.log(`  ✓ [검색] 다중 span 하이라이트: "${spanText.substring(0, 50)}"`);
+                // span의 스타일 복사 함수
+                const copySpanStyles = (source, target) => {
+                  const style = window.getComputedStyle(source);
+                  const styleProps = [
+                    'position', 'left', 'top', 'fontSize', 'fontFamily', 'fontWeight',
+                    'transform', 'transformOrigin', 'color', 'whiteSpace', 'letterSpacing',
+                    'wordSpacing', 'textRendering', 'textTransform'
+                  ];
+                  styleProps.forEach(prop => {
+                    const value = style[prop];
+                    if (value) {
+                      target.style[prop] = value;
+                    }
+                  });
+                  target.className = source.className;
+                };
+                
+                const parent = span.parentNode;
+                const fragment = document.createDocumentFragment();
+                
+                if (beforeText) {
+                  const beforeSpan = span.cloneNode(false);
+                  beforeSpan.textContent = beforeText;
+                  copySpanStyles(span, beforeSpan);
+                  fragment.appendChild(beforeSpan);
                 }
+                
+                const highlightSpan = span.cloneNode(false);
+                highlightSpan.textContent = matchText;
+                highlightSpan.classList.add('highlight-word');
+                copySpanStyles(span, highlightSpan);
+                fragment.appendChild(highlightSpan);
+                
+                if (afterText) {
+                  const afterSpan = span.cloneNode(false);
+                  afterSpan.textContent = afterText;
+                  copySpanStyles(span, afterSpan);
+                  fragment.appendChild(afterSpan);
+                }
+                
+                parent.replaceChild(fragment, span);
+                queryHighlighted++;
+                totalHighlighted++;
+                processedSpans.add(span);
+                
+                // DOM이 변경되었으므로 span을 다시 수집
+                textSpans = Array.from(textLayer.querySelectorAll('span'));
               }
-            });
+              
+              if (queryHighlighted <= 5) {
+                console.log(`  ✓ [검색] 다중 span 분할 하이라이트: "${spanText.substring(localQueryStart, localQueryEnd)}"`);
+              }
+            }
             
             break; // 검색어를 찾았으므로 더 이상 조합하지 않음
           }
@@ -237,10 +375,10 @@ function applyHighlightForSearch(textLayer, keywords, searchText) {
       }
     }
     
-    console.log(`✅ [검색] 검색어 "${query}" 처리 완료: ${queryHighlighted}개 span 하이라이트`);
+    console.log(`✅ [검색] 검색어 "${queryOriginal}" 처리 완료: ${queryHighlighted}개 하이라이트`);
   });
   
-  console.log(`✅ [검색] 전체 하이라이트 완료: 총 ${totalHighlighted}개 span`);
+  console.log(`✅ [검색] 전체 하이라이트 완료: 총 ${totalHighlighted}개 하이라이트`);
   
   // 2단계: 문장 하이라이트 제거 (단일/복수 검색어 모두)
   // 기존 문장 하이라이트 제거
