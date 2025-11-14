@@ -76,26 +76,30 @@ export class QuestionAnalyzer {
       
     } catch (error) {
       console.error('❌ 모든 AI 분석 시도 실패:', error);
+      console.warn('⚠️ AI 분석 실패, 질문에서 직접 키워드 추출로 폴백');
       
-      // 상세한 에러 정보와 함께 시스템 종료
-      const errorMessage = `
-AI 질문 분석 서비스를 사용할 수 없습니다.
-
-오류 상세:
-- 원인: ${error instanceof Error ? error.message : '알 수 없는 오류'}
-- 시간: ${new Date().toISOString()}
-- 질문: "${question}"
-
-해결 방법:
-1. 페이지를 새로고침해주세요
-2. 잠시 후 다시 시도해주세요
-3. 문제가 지속되면 관리자에게 문의해주세요
-
-시스템을 다시 시작합니다...
-      `;
+      // AI 분석 실패 시 질문에서 직접 키워드 추출 (폴백)
+      const directKeywords = this.extractKeywordsFromQuestion(question);
       
-      console.error(errorMessage);
-      throw new Error('AI 분석 서비스 실패: ' + (error instanceof Error ? error.message : '알 수 없는 오류'));
+      if (directKeywords.length === 0) {
+        // 키워드 추출도 실패한 경우
+        console.error('❌ 키워드 추출도 실패했습니다.');
+        throw new Error('AI 분석 서비스 실패: ' + (error instanceof Error ? error.message : '알 수 없는 오류'));
+      }
+      
+      // 폴백 분석 결과 반환
+      const fallbackAnalysis: QuestionAnalysis = {
+        intent: '일반 문의',
+        keywords: directKeywords,
+        expandedKeywords: directKeywords, // 동의어 확장 없이 기본 키워드만 사용
+        category: 'general',
+        complexity: 'simple',
+        entities: [],
+        context: question
+      };
+      
+      console.log(`✅ 폴백 분석 완료: ${directKeywords.length}개 키워드 추출`);
+      return fallbackAnalysis;
     }
   }
 
