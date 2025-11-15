@@ -49,51 +49,131 @@ function applyHighlightForReference(textLayer, keywords, searchText) {
     });
   }
   
-  // ✅ 참조용: 검색 텍스트 하이라이트 (긴 문장 지원)
+  // ✅ 참조용: 검색 텍스트 하이라이트 (개선된 버전)
   if (searchText && searchText.trim().length > 0) {
-    const trimmedSearchText = searchText.trim();
-    const textLength = trimmedSearchText.length;
+    // ✅ 따옴표 제거 및 정규화
+    let trimmedSearchText = searchText.trim();
+    if (trimmedSearchText.startsWith('"') && trimmedSearchText.endsWith('"')) {
+      trimmedSearchText = trimmedSearchText.slice(1, -1);
+    }
+    
+    // ✅ 특수문자 정규화 (공백, • 등)
+    const normalizeText = (text) => {
+      return text
+        .replace(/[•·]/g, ' ') // 특수문자를 공백으로
+        .replace(/\s+/g, ' ') // 연속 공백을 하나로
+        .trim()
+        .toLowerCase();
+    };
+    
+    const normalizedSearch = normalizeText(trimmedSearchText);
+    const textLength = normalizedSearch.length;
     
     console.log(`🔍 [참조] 검색 텍스트 길이: ${textLength}자`);
+    console.log(`🔍 [참조] 정규화된 검색 텍스트: ${normalizedSearch.substring(0, 50)}...`);
     
     if (textLength >= 30) {
-      // 긴 문장: 핵심 부분만 하이라이트
-      const coreText = trimmedSearchText.substring(0, 35).trim();
+      // ✅ 개선: 핵심 키워드 추출 (더 긴 부분 사용)
+      // 첫 50자를 사용하되, 공백이나 구두점에서 끊기
+      let coreText = normalizedSearch.substring(0, 50);
+      const lastSpaceIndex = coreText.lastIndexOf(' ');
+      if (lastSpaceIndex > 30) {
+        coreText = coreText.substring(0, lastSpaceIndex);
+      }
       
-      let accumulatedText = '';
-      let accumulatedSpans = [];
+      console.log(`🔍 [참조] 핵심 텍스트: ${coreText}`);
       
+      // ✅ 개선: 전체 텍스트 레이어에서 텍스트 수집
+      let fullText = '';
+      const allSpans = [];
       textSpans.forEach((span) => {
         const text = span.textContent || '';
         if (text.trim()) {
-          accumulatedText += text;
-          accumulatedSpans.push(span);
-          
-          if (accumulatedText.toLowerCase().includes(coreText.toLowerCase())) {
-            const maxLength = coreText.length * 2;
-            if (accumulatedText.length <= maxLength) {
-              accumulatedSpans.forEach(s => {
-                s.classList.add('highlight-strong');
-                highlightCount++;
-              });
-            }
-            accumulatedText = '';
-            accumulatedSpans = [];
-          }
-          
-          if (accumulatedText.length > coreText.length * 3) {
-            accumulatedText = '';
-            accumulatedSpans = [];
-          }
+          fullText += text + ' ';
+          allSpans.push(span);
         }
       });
+      
+      const normalizedFullText = normalizeText(fullText);
+      
+      // ✅ 핵심 텍스트가 전체 텍스트에 포함되어 있는지 확인
+      const coreIndex = normalizedFullText.indexOf(coreText);
+      if (coreIndex !== -1) {
+        // ✅ 핵심 텍스트의 위치를 찾아서 해당 span들을 하이라이트
+        let charCount = 0;
+        let startSpanIndex = -1;
+        let endSpanIndex = -1;
+        
+        // 시작 위치 찾기
+        for (let i = 0; i < allSpans.length; i++) {
+          const spanText = normalizeText(allSpans[i].textContent || '');
+          if (charCount + spanText.length >= coreIndex) {
+            startSpanIndex = i;
+            break;
+          }
+          charCount += spanText.length + 1; // +1 for space
+        }
+        
+        // 끝 위치 찾기 (coreText 길이만큼)
+        if (startSpanIndex !== -1) {
+          charCount = 0;
+          for (let i = 0; i < allSpans.length; i++) {
+            const spanText = normalizeText(allSpans[i].textContent || '');
+            charCount += spanText.length + 1;
+            if (charCount >= coreIndex + coreText.length) {
+              endSpanIndex = i;
+              break;
+            }
+          }
+          
+          // ✅ 하이라이트 적용
+          const endIndex = endSpanIndex !== -1 ? endSpanIndex + 1 : allSpans.length;
+          for (let i = startSpanIndex; i < endIndex && i < allSpans.length; i++) {
+            allSpans[i].classList.add('highlight-strong');
+            highlightCount++;
+          }
+          
+          console.log(`✅ [참조] 핵심 텍스트 찾음: ${startSpanIndex}~${endIndex} span 하이라이트`);
+        } else {
+          // ✅ 대안: 단어 단위로 매칭 시도
+          const searchWords = coreText.split(' ').filter(w => w.length >= 3);
+          console.log(`🔍 [참조] 단어 단위 매칭 시도: ${searchWords.length}개 단어`);
+          
+          textSpans.forEach((span) => {
+            const spanText = normalizeText(span.textContent || '');
+            for (const word of searchWords) {
+              if (spanText.includes(word)) {
+                span.classList.add('highlight-strong');
+                highlightCount++;
+                break;
+              }
+            }
+          });
+        }
+      } else {
+        // ✅ 핵심 텍스트를 찾지 못한 경우: 핵심 단어들로 하이라이트
+        const importantWords = coreText.split(' ')
+          .filter(w => w.length >= 4) // 4자 이상 단어만
+          .slice(0, 5); // 최대 5개 단어
+        
+        console.log(`🔍 [참조] 핵심 텍스트를 찾지 못함, 핵심 단어로 하이라이트: ${importantWords.join(', ')}`);
+        
+        textSpans.forEach((span) => {
+          const spanText = normalizeText(span.textContent || '');
+          for (const word of importantWords) {
+            if (spanText.includes(word)) {
+              span.classList.add('highlight-strong');
+              highlightCount++;
+              break;
+            }
+          }
+        });
+      }
     } else {
       // 짧은 텍스트: 정확한 매칭
-      const normalizedSearch = trimmedSearchText.toLowerCase();
-      
       textSpans.forEach((span) => {
-        const text = (span.textContent || '').toLowerCase();
-        if (text.includes(normalizedSearch)) {
+        const spanText = normalizeText(span.textContent || '');
+        if (spanText.includes(normalizedSearch)) {
           span.classList.add('highlight-strong');
           highlightCount++;
         }
