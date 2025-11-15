@@ -1072,34 +1072,39 @@ Here is the source material:
       let bestMatchIndex = matchIndex;
       let bestMatchText = matchText;
       
-      if (boldMatch && boldMatch.length > 1) {
-        // 여러 매칭이 있으면 각 위치를 확인하여 가장 관련성 높은 위치 선택
-        // 참조 번호가 문장 끝에 있는 경우 (공백 후 참조 번호)가 더 관련성 높음
-        let bestScore = 0;
-        
-        // 모든 매칭 위치 확인 (matchAll 사용으로 모든 위치 찾기)
-        const allMatches = [...responseText.matchAll(boldPattern)];
-        for (const match of allMatches) {
-          const idx = match.index;
-          if (idx === undefined) continue;
+      // ✅ 수정: 원숫자 매칭이 실패한 경우에만 boldMatch 로직 실행
+      // (원숫자 매칭이 성공했다면 이미 bestMatchIndex와 bestMatchText가 설정되었으므로 이 로직은 필요 없음)
+      if (matchIndex < 0) {
+        const boldMatch = responseText.match(boldPattern);
+        if (boldMatch && boldMatch.length > 1) {
+          // 여러 매칭이 있으면 각 위치를 확인하여 가장 관련성 높은 위치 선택
+          // 참조 번호가 문장 끝에 있는 경우 (공백 후 참조 번호)가 더 관련성 높음
+          let bestScore = 0;
           
-          const beforeChar = idx > 0 ? responseText[idx - 1] : ' ';
-          const afterChar = idx + match[0].length < responseText.length 
-            ? responseText[idx + match[0].length] : ' ';
-          
-          // 관련성 점수 계산
-          let score = 0;
-          // 참조 번호 앞이 공백이고 뒤가 문장 끝이거나 공백인 경우가 더 관련성 높음
-          if (beforeChar === ' ' && (afterChar === ' ' || afterChar === '.' || afterChar === '。')) {
-            score = 2; // 가장 관련성 높음
-          } else if (beforeChar === ' ' || afterChar === ' ' || afterChar === '.' || afterChar === '。') {
-            score = 1; // 중간 관련성
-          }
-          
-          if (score > bestScore) {
-            bestScore = score;
-            bestMatchIndex = idx;
-            bestMatchText = match[0];
+          // 모든 매칭 위치 확인 (matchAll 사용으로 모든 위치 찾기)
+          const allMatches = [...responseText.matchAll(boldPattern)];
+          for (const match of allMatches) {
+            const idx = match.index;
+            if (idx === undefined) continue;
+            
+            const beforeChar = idx > 0 ? responseText[idx - 1] : ' ';
+            const afterChar = idx + match[0].length < responseText.length 
+              ? responseText[idx + match[0].length] : ' ';
+            
+            // 관련성 점수 계산
+            let score = 0;
+            // 참조 번호 앞이 공백이고 뒤가 문장 끝이거나 공백인 경우가 더 관련성 높음
+            if (beforeChar === ' ' && (afterChar === ' ' || afterChar === '.' || afterChar === '。')) {
+              score = 2; // 가장 관련성 높음
+            } else if (beforeChar === ' ' || afterChar === ' ' || afterChar === '.' || afterChar === '。') {
+              score = 1; // 중간 관련성
+            }
+            
+            if (score > bestScore) {
+              bestScore = score;
+              bestMatchIndex = idx;
+              bestMatchText = match[0];
+            }
           }
         }
       }
