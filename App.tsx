@@ -692,11 +692,43 @@ function App() {
     let matchText = '';
     
     // ✅ 우선순위: 원형 숫자 > 볼드 > 일반 숫자
+    // ✅ 개선: 모든 원숫자 매칭 위치 찾기
     if (circlePattern) {
-      const circleIndex = responseText.indexOf(circlePattern);
-      if (circleIndex >= 0) {
-        matchIndex = circleIndex;
-        matchText = circlePattern;
+      const allMatches: Array<{index: number, text: string}> = [];
+      let searchIndex = 0;
+      while (true) {
+        const foundIndex = responseText.indexOf(circlePattern, searchIndex);
+        if (foundIndex === -1) break;
+        allMatches.push({ index: foundIndex, text: circlePattern });
+        searchIndex = foundIndex + 1;
+      }
+      
+      if (allMatches.length > 0) {
+        // ✅ 개선: 여러 매칭이 있으면 참조 번호 앞 문장이 더 길고 의미 있는 것을 선택
+        let bestMatch = allMatches[0];
+        
+        if (allMatches.length > 1) {
+          for (const match of allMatches) {
+            // 참조 번호 앞 200자 추출
+            const prevContext = responseText.substring(Math.max(0, match.index - 200), match.index);
+            const bestPrevContext = responseText.substring(Math.max(0, bestMatch.index - 200), bestMatch.index);
+            
+            // 앞 문장이 더 길고 의미 있는 경우 선택 (최소 20자 이상)
+            const prevWords = prevContext.trim().split(/\s+/).filter(w => w.length >= 2);
+            const bestPrevWords = bestPrevContext.trim().split(/\s+/).filter(w => w.length >= 2);
+            
+            if (prevWords.length > bestPrevWords.length && prevWords.length >= 5) {
+              bestMatch = match;
+            }
+          }
+        }
+        
+        matchIndex = bestMatch.index;
+        matchText = bestMatch.text;
+        
+        if (allMatches.length > 1) {
+          console.log(`✅ 참조 번호 ${referenceNumber}: ${allMatches.length}개 원숫자 매칭 중 가장 관련성 높은 위치 선택`);
+        }
       }
     }
     

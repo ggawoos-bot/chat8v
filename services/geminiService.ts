@@ -910,18 +910,87 @@ Here is the source material:
       let matchIndex = -1;
       let matchText = '';
       
-      // **2** 형식 찾기
-      const boldMatch = responseText.match(boldPattern);
-      if (boldMatch && boldMatch.length > 0) {
-        // 첫 번째 매칭 위치 사용
-        matchIndex = responseText.indexOf(boldMatch[0]);
-        matchText = boldMatch[0];
-      } else if (circlePattern) {
-        // ② 형식 찾기
-        const circleIndex = responseText.indexOf(circlePattern);
-        if (circleIndex >= 0) {
-          matchIndex = circleIndex;
-          matchText = circlePattern;
+      // ✅ 개선: 모든 매칭 위치 찾기 (가장 관련성 높은 위치 선택)
+      const allCircleMatches: Array<{index: number, text: string}> = [];
+      if (circlePattern) {
+        let searchIndex = 0;
+        while (true) {
+          const foundIndex = responseText.indexOf(circlePattern, searchIndex);
+          if (foundIndex === -1) break;
+          allCircleMatches.push({ index: foundIndex, text: circlePattern });
+          searchIndex = foundIndex + 1;
+        }
+      }
+      
+      // ✅ 개선: 참조 번호 주변 컨텍스트를 확인하여 가장 관련성 높은 매칭 선택
+      if (allCircleMatches.length > 0) {
+        // 각 매칭 위치에서 앞뒤 텍스트를 확인하여 청크 내용과 가장 유사한 위치 선택
+        let bestMatch = allCircleMatches[0];
+        let bestScore = 0;
+        
+        const chunkContent = (chunkRef.content || '').substring(0, 150).toLowerCase();
+        
+        for (const match of allCircleMatches) {
+          // 참조 번호 앞 300자 추출
+          const contextStart = Math.max(0, match.index - 300);
+          const contextEnd = Math.min(responseText.length, match.index + match.text.length + 100);
+          const context = responseText.substring(contextStart, contextEnd).toLowerCase();
+          
+          // 청크 내용과의 유사도 계산 (공통 단어 개수)
+          const chunkWords = chunkContent.split(/\s+/).filter(w => w.length >= 2);
+          const contextWords = context.split(/\s+/).filter(w => w.length >= 2);
+          const commonWords = chunkWords.filter(w => contextWords.includes(w));
+          const score = commonWords.length;
+          
+          if (score > bestScore) {
+            bestScore = score;
+            bestMatch = match;
+          }
+        }
+        
+        matchIndex = bestMatch.index;
+        matchText = bestMatch.text;
+        
+        console.log(`✅ 참조 번호 ${refNumber}: ${allCircleMatches.length}개 매칭 중 가장 유사한 위치 선택 (점수: ${bestScore})`);
+      }
+      
+      // **2** 형식 찾기 (원숫자를 찾지 못한 경우에만)
+      if (matchIndex < 0) {
+        const boldMatch = responseText.match(boldPattern);
+        if (boldMatch && boldMatch.length > 0) {
+          // ✅ 개선: 여러 매칭 중 가장 관련성 높은 것 선택
+          if (boldMatch.length === 1) {
+            matchIndex = responseText.indexOf(boldMatch[0]);
+            matchText = boldMatch[0];
+          } else {
+            // 여러 매칭이 있으면 청크 내용과 가장 유사한 위치 선택
+            const chunkContent = (chunkRef.content || '').substring(0, 150).toLowerCase();
+            let bestMatch = { index: -1, text: '', score: 0 };
+            
+            const allBoldMatches = [...responseText.matchAll(boldPattern)];
+            for (const match of allBoldMatches) {
+              const idx = match.index;
+              if (idx === undefined) continue;
+              
+              const contextStart = Math.max(0, idx - 300);
+              const contextEnd = Math.min(responseText.length, idx + match[0].length + 100);
+              const context = responseText.substring(contextStart, contextEnd).toLowerCase();
+              
+              const chunkWords = chunkContent.split(/\s+/).filter(w => w.length >= 2);
+              const contextWords = context.split(/\s+/).filter(w => w.length >= 2);
+              const commonWords = chunkWords.filter(w => contextWords.includes(w));
+              const score = commonWords.length;
+              
+              if (score > bestMatch.score) {
+                bestMatch = { index: idx, text: match[0], score };
+              }
+            }
+            
+            if (bestMatch.index >= 0) {
+              matchIndex = bestMatch.index;
+              matchText = bestMatch.text;
+            }
+          }
         }
       }
       
